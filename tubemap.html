@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Barley Pangenome Rail Map</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; background: #121212; color: #fff; overflow: hidden; }
+        #toolbar { background: #1e1e1e; border-bottom: 1px solid #333; z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; }
+        .row { display: flex; gap: 15px; align-items: center; }
+        #viewer { width: 100vw; height: calc(100vh - 100px); cursor: grab; }
+        #viewer:active { cursor: grabbing; }
+        
+        select, input[type="number"] { background: #333; color: white; border: 1px solid #555; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
+        select[multiple] { height: 40px; width: 150px; }
+        input[type="number"] { width: 120px; font-family: monospace; }
+        button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; }
+        button:hover { background: #2980b9; }
+        
+        #status { font-family: monospace; font-size: 12px; padding: 5px 10px; border-radius: 4px; background: #000; }
+        .info-text { font-size: 13px; color: #aaa; }
+        
+        .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
+        .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
+        .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        
+        .base-track { fill: none; stroke: #444; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
+        .base-track:hover { stroke: #999; }
+        
+        #tooltip { position: absolute; background: rgba(0,0,0,0.9); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <div class="row">
+        <strong>Pangenome Map</strong>
+        
+        <label>Load Chromosome:</label>
+        <select id="chromSelect">
+            <option value="">-- Select --</option>
+            <!-- Replace 'YourName/YourRepo/releases/download/v1.0/' with your actual GitHub release URL -->
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr1H.json">chr1H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr2H.json">chr2H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr3H.json">chr3H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr4H.json">chr4H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr5H.json">chr5H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr6H.json">chr6H</option>
+            <option value="https://github.com/YourName/YourRepo/releases/download/v1.0/Pan76_tubemap_chr7H.json">chr7H</option>
+        </select>
+        
+        <div id="status" style="color:#aaa;">Ready.</div>
+        
+        <label style="margin-left:auto;">Highlight Genomes:</label>
+        <select id="samplePicker" multiple></select>
+    </div>
+    <div class="row">
+        <span class="info-text">🖱️ Click & Drag to Pan | Scroll to Zoom</span>
+        <div style="margin-left:auto; display:flex; gap: 10px; align-items:center;">
+            <label class="info-text">Jump to Coordinate:</label>
+            <input type="number" id="jumpStart" placeholder="Start Base">
+            <input type="number" id="jumpEnd" placeholder="End Base (Opt)">
+            <button onclick="jumpToRegion()">Go</button>
+        </div>
+    </div>
+</div>
+
+<div id="viewer"></div>
+<div id="tooltip"></div>
+
+<script>
+    const width = window.innerWidth, height = window.innerHeight - 100;
+    const svg = d3.select("#viewer").append("svg").attr("width", width).attr("height", height);
+    const g = svg.append("g");
+    const tooltip = d3.select("#tooltip");
+    const statusDiv = document.getElementById("status");
+
+    let globalData = null;       
+    let currentTransform = d3.zoomIdentity.translate(50, height / 2);
+
+    const colWidth = 300; 
+    const transitionWidth = 100; 
+    const railWidth = colWidth - transitionWidth;
+    const colorScale = d3.scaleOrdinal(d3.schemeSet2);
+    const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
+
+    const zoom = d3.zoom().scaleExtent([0.02, 10]).on("zoom", e => {
+        g.attr("transform", e.transform);
+        currentTransform = e.transform;
+        tooltip.style("display", "none");
+        if (globalData) renderVisibleChunk();
+    });
+    svg.call(zoom).call(zoom.transform, currentTransform);
+
+    // FETCH FROM SERVER INSTEAD OF LOCAL FILE UPLOAD
+    document.getElementById('chromSelect').addEventListener('change', e => {
+        const fileUrl = e.target.value;
+        if (!fileUrl) return;
+        
+        statusDiv.style.color = "#f39c12";
+        statusDiv.innerText = `Downloading ${fileUrl.split('/').pop()} from server...`;
+
+        const startTime = performance.now();
+        
+        fetch(fileUrl)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                statusDiv.innerText = "Parsing JSON & calculating topology...";
+                setTimeout(() => {
+                    globalData = data;
+                    
+                    const sampSelect = d3.select("#samplePicker");
+                    sampSelect.selectAll("option").remove();
+                    sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
+
+                    computeChromosomeLayout();
+                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2).scale(1));
+                    
+                    const endTime = performance.now();
+                    statusDiv.style.color = "#2ecc71";
+                    statusDiv.innerText = `Loaded ${globalData.columns.length} regions in ${((endTime - startTime) / 1000).toFixed(2)}s`;
+                }, 50);
+            })
+            .catch(err => {
+                statusDiv.style.color = "#e74c3c";
+                statusDiv.innerText = `Error loading file: ${err.message}`;
+            });
+    });
+
+    document.getElementById('samplePicker').addEventListener('change', () => { if(globalData) updateHighlights(); });
+
+    function computeChromosomeLayout() {
+        const nodeMap = new Map();
+        const cols = d3.group(globalData.segments, d => d.col);
+        const incomingMap = d3.group(globalData.transitions, d => d.target);
+
+        globalData.columns.forEach((colInfo, visualIndex) => {
+            let segsInCol = cols.get(colInfo.col) || [];
+            
+            if (visualIndex > 0) {
+                segsInCol.forEach(n => {
+                    const incoming = incomingMap.get(n.id) || [];
+                    if (incoming.length > 0) {
+                        let sumY = 0, totalWeight = 0;
+                        incoming.forEach(t => {
+                            const sourceNode = nodeMap.get(t.source);
+                            if (sourceNode) {
+                                sumY += sourceNode.y * t.samples.length;
+                                totalWeight += t.samples.length;
+                            }
+                        });
+                        n.barycenter = totalWeight > 0 ? sumY / totalWeight : 0;
+                    } else { n.barycenter = 0; }
+                });
+                segsInCol.sort((a, b) => a.barycenter - b.barycenter);
+            } else {
+                segsInCol.sort((a, b) => b.samples.length - a.samples.length);
+            }
+
+            const colCenterX = visualIndex * colWidth;
+            segsInCol.forEach((n, i) => {
+                n.x1 = colCenterX - railWidth/2;
+                n.x2 = colCenterX + railWidth/2;
+                n.y = (i - (segsInCol.length-1)/2) * 45; 
+                nodeMap.set(n.id, n);
+            });
+        });
+        globalData.nodeMap = nodeMap;
+        renderVisibleChunk();
+    }
+
+    function jumpToRegion() {
+        if(!globalData) return;
+        const start = parseInt(document.getElementById('jumpStart').value);
+        const end = parseInt(document.getElementById('jumpEnd').value);
+
+        if(!start || isNaN(start)) return;
+
+        let startIdx = globalData.columns.findIndex(c => start >= parseInt(c.start) && start <= parseInt(c.end));
+        if (startIdx === -1) startIdx = 0;
+
+        let endIdx = startIdx;
+        if (end && !isNaN(end) && end > start) {
+            endIdx = globalData.columns.findIndex(c => end >= parseInt(c.start) && end <= parseInt(c.end));
+            if (endIdx === -1) endIdx = globalData.columns.length - 1;
+        }
+
+        const centerVisualIdx = (startIdx + endIdx) / 2;
+        const targetX = centerVisualIdx * colWidth;
+        
+        let targetScale = 1;
+        if (startIdx !== endIdx) {
+            const rangePx = Math.abs(endIdx - startIdx) * colWidth + colWidth; 
+            targetScale = width / rangePx;
+            targetScale = Math.min(Math.max(targetScale, 0.05), 2); 
+        }
+
+        svg.transition().duration(1000).call(
+            zoom.transform,
+            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2).scale(targetScale)
+        );
+    }
+
+    let lastRenderStart = -1;
+    let lastRenderEnd = -1;
+
+    function renderVisibleChunk() {
+        if (!globalData) return;
+        
+        const minX = -currentTransform.x / currentTransform.k;
+        const maxX = (width - currentTransform.x) / currentTransform.k;
+        
+        const startVisIdx = Math.max(0, Math.floor(minX / colWidth) - 2);
+        const endVisIdx = Math.min(globalData.columns.length - 1, Math.ceil(maxX / colWidth) + 2);
+
+        if (startVisIdx === lastRenderStart && endVisIdx === lastRenderEnd) return;
+        lastRenderStart = startVisIdx;
+        lastRenderEnd = endVisIdx;
+
+        const viewCols = globalData.columns.slice(startVisIdx, endVisIdx + 1);
+        const actualStartCol = viewCols[0].col;
+        const actualEndCol = viewCols[viewCols.length-1].col;
+
+        const viewSegs = globalData.segments.filter(s => s.col >= actualStartCol && s.col <= actualEndCol);
+        const viewTrans = globalData.transitions.filter(t => {
+            const targetColId = parseInt(t.target.split('_')[0].replace('c', ''));
+            return targetColId > actualStartCol && targetColId <= actualEndCol;
+        });
+
+        g.selectAll("*").remove();
+
+        let localMinY = 0, localMaxY = 0;
+        if (viewSegs.length > 0) {
+            localMinY = d3.min(viewSegs, d => d.y);
+            localMaxY = d3.max(viewSegs, d => d.y);
+        }
+        
+        // FIXED GENE ANNOTATION POSITIONING
+        const rulerTextTopY = localMinY - 80;
+        const rulerLineTopY = localMinY - 60;
+        const rulerLineBotY = localMaxY + 40;
+        const annoTextBotY = localMaxY + 60; // Safely pinned just below the tracks
+        const maxThickness = 25;
+        const totalSamples = globalData.samples.length;
+
+        // Draw Rulers & Annotations
+        viewCols.forEach(colInfo => {
+            const visualIdx = globalData.columns.indexOf(colInfo);
+            const colCenterX = visualIdx * colWidth;
+            const boundaryX = colCenterX + colWidth/2;
+
+            if(colInfo.col < globalData.columns[globalData.columns.length - 1].col) {
+                g.append("line").attr("class", "ruler-line").attr("x1", boundaryX).attr("x2", boundaryX).attr("y1", rulerLineTopY).attr("y2", rulerLineBotY);
+                g.append("text").attr("class", "ruler-text").attr("x", boundaryX).attr("y", rulerTextTopY).text(`${colInfo.chrom}:${colInfo.end}`);
+            }
+            if(visualIdx === 0) {
+                const startX = colCenterX - colWidth/2;
+                g.append("line").attr("class", "ruler-line").attr("x1", startX).attr("x2", startX).attr("y1", rulerLineTopY).attr("y2", rulerLineBotY);
+                g.append("text").attr("class", "ruler-text").attr("x", startX).attr("y", rulerTextTopY).text(`${colInfo.chrom}:${colInfo.start}`);
+            }
+
+            // GENE ANNOTATIONS FILTERED AND ROTATED
+            if (colInfo.anno) {
+                const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
+                if (validAnnos.length > 0) {
+                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextBotY)
+                     .attr("transform", `rotate(-25, ${colCenterX}, ${annoTextBotY})`).text(validAnnos.join(', '));
+                }
+            }
+        });
+
+        // Draw Base Tracks
+        g.selectAll(".rail").data(viewSegs).enter().append("line").attr("class", "base-track")
+            .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
+            .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
+            .on("mouseover", showTooltip).on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+
+        // Draw Transitions
+        g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "base-track")
+            .attr("d", d => {
+                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
+                if(!src || !tgt) return "";
+                return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
+            })
+            .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
+            .on("mouseover", showTooltip).on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+
+        window.activeSegs = viewSegs;
+        window.activeTrans = viewTrans;
+        g.append("g").attr("id", "highlights-layer");
+        updateHighlights();
+    }
+
+    function updateHighlights() {
+        if (!window.activeSegs) return;
+        const selected = Array.from(document.getElementById('samplePicker').selectedOptions).map(o => o.value);
+        const hlLayer = d3.select("#highlights-layer");
+        hlLayer.selectAll("*").remove();
+
+        selected.forEach((sample, idx) => {
+            const offset = (idx - (selected.length - 1) / 2) * 5; 
+            const color = colorScale(sample);
+
+            hlLayer.selectAll(`.hl-r-${idx}`).data(window.activeSegs.filter(s => s.samples.includes(sample))).enter().append("line")
+                   .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y + offset).attr("y2", d => d.y + offset)
+                   .style("stroke", color).style("stroke-width", 3).style("pointer-events", "none");
+
+            hlLayer.selectAll(`.hl-t-${idx}`).data(window.activeTrans.filter(t => t.samples.includes(sample))).enter().append("path")
+                   .attr("d", d => {
+                       const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
+                       if(!src || !tgt) return "";
+                       return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
+                   })
+                   .attr("transform", `translate(0, ${offset})`)
+                   .style("stroke", color).style("stroke-width", 3).style("fill", "none").style("pointer-events", "none");
+        });
+    }
+
+    function showTooltip(e, d) { tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`); }
+    function moveTooltip(e) { tooltip.style("left", (e.pageX + 20) + "px").style("top", (e.pageY - 20) + "px"); }
+    function hideTooltip() { tooltip.style("display", "none"); }
+</script>
+</body>
+</html>
