@@ -39,13 +39,13 @@
         <label>Load Chromosome:</label>
         <select id="chromSelect">
             <option value="">-- Select --</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr1H.json">chr1H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr2H.json">chr2H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr3H.json">chr3H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr4H.json">chr4H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr5H.json">chr5H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr6H.json">chr6H</option>
-            <option value="https://github.com/jsarriaa/barleygraph_phg_viwer/releases/download/v0.1/Pan76_tube_map.json_chr7H.json">chr7H</option>
+            <option value="Pan76_tube_map.json_chr1H.json.gz">chr1H</option>
+            <option value="Pan76_tube_map.json_chr2H.json.gz">chr2H</option>
+            <option value="Pan76_tube_map.json_chr3H.json.gz">chr3H</option>
+            <option value="Pan76_tube_map.json_chr4H.json.gz">chr4H</option>
+            <option value="Pan76_tube_map.json_chr5H.json.gz">chr5H</option>
+            <option value="Pan76_tube_map.json_chr6H.json.gz">chr6H</option>
+            <option value="Pan76_tube_map.json_chr7H.json.gz">chr7H</option>
         </select>
         
         <div id="status" style="color:#aaa;">Ready.</div>
@@ -91,20 +91,23 @@
     });
     svg.call(zoom).call(zoom.transform, currentTransform);
 
-    // FETCH FROM SERVER INSTEAD OF LOCAL FILE UPLOAD
+    // FETCH FROM SERVER WITH ON-THE-FLY DECOMPRESSION
     document.getElementById('chromSelect').addEventListener('change', e => {
         const fileUrl = e.target.value;
         if (!fileUrl) return;
         
         statusDiv.style.color = "#f39c12";
-        statusDiv.innerText = `Downloading ${fileUrl.split('/').pop()} from server...`;
+        statusDiv.innerText = `Downloading & decompressing ${fileUrl}...`;
 
         const startTime = performance.now();
         
         fetch(fileUrl)
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return response.json();
+                // Pipe the response through the browser's decompression engine
+                const ds = new DecompressionStream('gzip');
+                const decompressedStream = response.body.pipeThrough(ds);
+                return new Response(decompressedStream).json();
             })
             .then(data => {
                 statusDiv.innerText = "Parsing JSON & calculating topology...";
@@ -220,6 +223,8 @@
         lastRenderEnd = endVisIdx;
 
         const viewCols = globalData.columns.slice(startVisIdx, endVisIdx + 1);
+        if(viewCols.length === 0) return;
+        
         const actualStartCol = viewCols[0].col;
         const actualEndCol = viewCols[viewCols.length-1].col;
 
@@ -237,11 +242,10 @@
             localMaxY = d3.max(viewSegs, d => d.y);
         }
         
-        // FIXED GENE ANNOTATION POSITIONING
         const rulerTextTopY = localMinY - 80;
         const rulerLineTopY = localMinY - 60;
         const rulerLineBotY = localMaxY + 40;
-        const annoTextBotY = localMaxY + 60; // Safely pinned just below the tracks
+        const annoTextBotY = localMaxY + 60; 
         const maxThickness = 25;
         const totalSamples = globalData.samples.length;
 
