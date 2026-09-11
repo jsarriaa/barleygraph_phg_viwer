@@ -75,7 +75,7 @@
     const statusDiv = document.getElementById("status");
 
     let globalData = null;       
-    let currentTransform = d3.zoomIdentity.translate(50, height / 2);
+    let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 50); // Shifted initial view down slightly to accommodate top text
 
     const colWidth = 300; 
     const transitionWidth = 100; 
@@ -104,7 +104,6 @@
         fetch(fileUrl)
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                // Pipe the response through the browser's decompression engine
                 const ds = new DecompressionStream('gzip');
                 const decompressedStream = response.body.pipeThrough(ds);
                 return new Response(decompressedStream).json();
@@ -119,7 +118,7 @@
                     sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
 
                     computeChromosomeLayout();
-                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2).scale(1));
+                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 50).scale(1));
                     
                     const endTime = performance.now();
                     statusDiv.style.color = "#2ecc71";
@@ -202,7 +201,7 @@
 
         svg.transition().duration(1000).call(
             zoom.transform,
-            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2).scale(targetScale)
+            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2 + 50).scale(targetScale)
         );
     }
 
@@ -242,10 +241,11 @@
             localMaxY = d3.max(viewSegs, d => d.y);
         }
         
-        const rulerTextTopY = localMinY - 80;
-        const rulerLineTopY = localMinY - 60;
+        // NEW MATH: Gene annotations pinned above everything
+        const annoTextTopY = localMinY - 110;  
+        const rulerTextTopY = localMinY - 60;  
+        const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
-        const annoTextBotY = localMaxY + 60; 
         const maxThickness = 25;
         const totalSamples = globalData.samples.length;
 
@@ -265,12 +265,12 @@
                 g.append("text").attr("class", "ruler-text").attr("x", startX).attr("y", rulerTextTopY).text(`${colInfo.chrom}:${colInfo.start}`);
             }
 
-            // GENE ANNOTATIONS FILTERED AND ROTATED
+            // GENE ANNOTATIONS FILTERED, ROTATED, AND AT THE TOP
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
                 if (validAnnos.length > 0) {
-                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextBotY)
-                     .attr("transform", `rotate(-25, ${colCenterX}, ${annoTextBotY})`).text(validAnnos.join(', '));
+                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
+                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', '));
                 }
             }
         });
