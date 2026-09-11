@@ -23,12 +23,14 @@
         
         .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
         .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
-        .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; }
+        
+        .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
+        .anno-text:hover { fill: #ffffff; text-decoration: underline; }
         
         .base-track { fill: none; stroke: #444; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
         .base-track:hover { stroke: #999; }
         
-        #tooltip { position: absolute; background: rgba(0,0,0,0.9); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; }
+        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 4px 6px rgba(0,0,0,0.5); }
         
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
@@ -51,7 +53,7 @@
             <option value="Pan76_tube_map.json_chr7H.json.gz">chr7H</option>
         </select>
         
-        <div id="status" style="color:#aaa;">Ready.</div>
+        <div id="status" style="color:#aaa;">Initializing...</div>
         
         <label style="margin-left:auto;">Highlight Genomes:</label>
         <select id="samplePicker" multiple></select>
@@ -59,10 +61,9 @@
     <div class="row">
         <span class="info-text">🖱️ Click & Drag to Pan | Scroll to Zoom</span>
         
-        <!-- NEW SEARCH BAR FOR GENES -->
         <div style="margin-left:auto; display:flex; gap: 10px; align-items:center;">
             <label class="info-text">Find Gene:</label>
-            <input type="text" id="geneSearch" placeholder="e.g. 1HG0000020">
+            <input type="text" id="geneSearch" placeholder="e.g. 1HG0000030">
             <button onclick="searchGene()">Find</button>
         </div>
 
@@ -77,7 +78,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-11 | v1.2 (Gene Search Added)</div>
+<div id="version-tag">Build: 2026-09-11 | v1.4 (HC+LC Gene DB)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -88,12 +89,39 @@
 
     let globalData = null;       
     let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 100); 
+    let pendingJump = null;
 
     const colWidth = 300; 
     const transitionWidth = 100; 
     const railWidth = colWidth - transitionWidth;
     const colorScale = d3.scaleOrdinal(d3.schemeSet2);
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
+
+    // --------------------------------------------------------
+    // PRELOAD GLOBAL GENE INDEX (UPDATED TO pgsb_genes.tsv)
+    // --------------------------------------------------------
+    let globalGeneIndex = [];
+    fetch("pgsb_genes.tsv?t=" + new Date().getTime())
+        .then(res => res.text())
+        .then(text => {
+            const lines = text.split('\n');
+            lines.forEach(line => {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    const geneName = parts[0];
+                    const chrom = parts[1].split('_')[0];
+                    const start = parseInt(parts[2]);
+                    const end = parseInt(parts[3]);
+                    globalGeneIndex.push({ name: geneName, chrom: chrom, start: start, end: end });
+                }
+            });
+            statusDiv.style.color = "#2ecc71";
+            statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes from DB.`;
+        })
+        .catch(err => {
+            statusDiv.style.color = "#f39c12";
+            statusDiv.innerText = "Ready (Global search disabled - pgsb_genes.tsv missing).";
+        });
 
     const zoom = d3.zoom().scaleExtent([0.02, 10]).on("zoom", e => {
         g.attr("transform", e.transform);
@@ -130,11 +158,16 @@
                     sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
 
                     computeChromosomeLayout();
-                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 100).scale(1));
                     
-                    const endTime = performance.now();
-                    statusDiv.style.color = "#2ecc71";
-                    statusDiv.innerText = `Loaded ${globalData.columns.length} regions in ${((endTime - startTime) / 1000).toFixed(2)}s`;
+                    if (pendingJump) {
+                        executeJump(pendingJump.start, pendingJump.end, pendingJump.gene);
+                        pendingJump = null;
+                    } else {
+                        svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 100).scale(1));
+                        const endTime = performance.now();
+                        statusDiv.style.color = "#2ecc71";
+                        statusDiv.innerText = `Loaded ${globalData.columns.length} regions in ${((endTime - startTime) / 1000).toFixed(2)}s`;
+                    }
                 }, 50);
             })
             .catch(err => {
@@ -143,43 +176,75 @@
             });
     });
 
-    document.getElementById('samplePicker').addEventListener('change', () => { if(globalData) updateHighlights(); });
-
-    // NEW FUNCTION: Search for gene by name
     function searchGene() {
-        if(!globalData) return;
         const query = document.getElementById('geneSearch').value.trim().toLowerCase();
         if(!query) return;
 
-        // Find the first column that contains this gene name in its annotation
-        const targetIdx = globalData.columns.findIndex(c => c.anno && c.anno.toLowerCase().includes(query));
-
-        if (targetIdx !== -1) {
-            const targetCol = globalData.columns[targetIdx];
-            const targetX = targetIdx * colWidth;
+        if (globalGeneIndex.length > 0) {
+            const match = globalGeneIndex.find(g => g.name.toLowerCase().includes(query));
             
-            // Jump to the coordinate
-            svg.transition().duration(1000).call(
-                zoom.transform,
-                d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1)
-            );
-            
-            statusDiv.style.color = "#00ffcc";
-            statusDiv.innerText = `Found: ${query} at ${targetCol.start}-${targetCol.end}`;
-        } else {
-            statusDiv.style.color = "#e74c3c";
-            statusDiv.innerText = `Gene '${query}' not found on this chromosome.`;
-            setTimeout(() => { statusDiv.style.color = "#aaa"; statusDiv.innerText = "Ready."; }, 4000);
+            if (match) {
+                statusDiv.style.color = "#00ffcc";
+                statusDiv.innerText = `Found ${match.name} on ${match.chrom}. Preparing view...`;
+                
+                const expectedFile = `Pan76_tube_map.json_${match.chrom}.json.gz`;
+                const chromSelect = document.getElementById('chromSelect');
+                
+                if (chromSelect.value !== expectedFile) {
+                    chromSelect.value = expectedFile;
+                    pendingJump = { start: match.start, end: match.end, gene: match.name };
+                    chromSelect.dispatchEvent(new Event('change')); 
+                } else {
+                    executeJump(match.start, match.end, match.name);
+                }
+            } else {
+                showError(`Gene '${query}' not found in global database.`);
+            }
+        } else if (globalData) {
+            const targetIdx = globalData.columns.findIndex(c => c.anno && c.anno.toLowerCase().includes(query));
+            if (targetIdx !== -1) {
+                const targetCol = globalData.columns[targetIdx];
+                executeJump(targetCol.start, targetCol.end, query);
+            } else {
+                showError(`Gene '${query}' not found on this chromosome.`);
+            }
         }
     }
 
-    // Allow pressing "Enter" in the search box
+    function showError(msg) {
+        statusDiv.style.color = "#e74c3c";
+        statusDiv.innerText = msg;
+        setTimeout(() => { statusDiv.style.color = "#aaa"; statusDiv.innerText = "Ready."; }, 4000);
+    }
+
     document.getElementById("geneSearch").addEventListener("keypress", function(event) {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            searchGene();
-        }
+        if (event.key === "Enter") { event.preventDefault(); searchGene(); }
     });
+
+    document.getElementById('samplePicker').addEventListener('change', () => { if(globalData) updateHighlights(); });
+
+    function jumpToRegion() {
+        const start = parseInt(document.getElementById('jumpStart').value);
+        const end = parseInt(document.getElementById('jumpEnd').value);
+        if(start && !isNaN(start)) executeJump(start, end);
+    }
+
+    function executeJump(start, end, geneName = null) {
+        if(!globalData) return;
+        
+        let targetIdx = globalData.columns.findIndex(c => c.start >= start);
+        if (targetIdx === -1) targetIdx = globalData.columns.length - 1;
+
+        const targetX = targetIdx * colWidth;
+        
+        svg.transition().duration(1000).call(
+            zoom.transform,
+            d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1)
+        );
+        
+        statusDiv.style.color = "#00ffcc";
+        statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
+    }
 
     function computeChromosomeLayout() {
         const nodeMap = new Map();
@@ -219,38 +284,6 @@
         });
         globalData.nodeMap = nodeMap;
         renderVisibleChunk();
-    }
-
-    function jumpToRegion() {
-        if(!globalData) return;
-        const start = parseInt(document.getElementById('jumpStart').value);
-        const end = parseInt(document.getElementById('jumpEnd').value);
-
-        if(!start || isNaN(start)) return;
-
-        let startIdx = globalData.columns.findIndex(c => start >= parseInt(c.start) && start <= parseInt(c.end));
-        if (startIdx === -1) startIdx = 0;
-
-        let endIdx = startIdx;
-        if (end && !isNaN(end) && end > start) {
-            endIdx = globalData.columns.findIndex(c => end >= parseInt(c.start) && end <= parseInt(c.end));
-            if (endIdx === -1) endIdx = globalData.columns.length - 1;
-        }
-
-        const centerVisualIdx = (startIdx + endIdx) / 2;
-        const targetX = centerVisualIdx * colWidth;
-        
-        let targetScale = 1;
-        if (startIdx !== endIdx) {
-            const rangePx = Math.abs(endIdx - startIdx) * colWidth + colWidth; 
-            targetScale = width / rangePx;
-            targetScale = Math.min(Math.max(targetScale, 0.05), 2); 
-        }
-
-        svg.transition().duration(1000).call(
-            zoom.transform,
-            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2 + 100).scale(targetScale)
-        );
     }
 
     let lastRenderStart = -1;
@@ -296,7 +329,6 @@
         const maxThickness = 25;
         const totalSamples = globalData.samples.length;
 
-        // Draw Rulers & Annotations
         viewCols.forEach(colInfo => {
             const visualIdx = globalData.columns.indexOf(colInfo);
             const colCenterX = visualIdx * colWidth;
@@ -312,23 +344,33 @@
                 g.append("text").attr("class", "ruler-text").attr("x", startX).attr("y", rulerTextTopY).text(`${colInfo.chrom}:${colInfo.start}`);
             }
 
-            // Genes
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
                 if (validAnnos.length > 0) {
                     g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
-                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', '));
+                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', '))
+                     .on("mouseover", (e) => {
+                         tooltip.style("display", "block").html(`<div style='color:#00ffcc; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}`);
+                     })
+                     .on("mousemove", moveTooltip)
+                     .on("mouseout", hideTooltip)
+                     .on("click", () => {
+                         validAnnos.forEach(gene => {
+                             window.open(`https://plants.ensembl.org/Hordeum_vulgare/Gene/Summary?g=${gene}`, '_blank');
+                         });
+                     });
                 }
             }
         });
 
-        // Draw Base Tracks
         g.selectAll(".rail").data(viewSegs).enter().append("line").attr("class", "base-track")
             .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
-            .on("mouseover", showTooltip).on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+            .on("mouseover", (e, d) => {
+                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
+            })
+            .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
 
-        // Draw Transitions
         g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "base-track")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
@@ -336,7 +378,10 @@
                 return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
             })
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
-            .on("mouseover", showTooltip).on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+            .on("mouseover", (e, d) => {
+                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
+            })
+            .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
 
         window.activeSegs = viewSegs;
         window.activeTrans = viewTrans;
@@ -369,7 +414,6 @@
         });
     }
 
-    function showTooltip(e, d) { tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`); }
     function moveTooltip(e) { tooltip.style("left", (e.pageX + 20) + "px").style("top", (e.pageY - 20) + "px"); }
     function hideTooltip() { tooltip.style("display", "none"); }
 </script>
