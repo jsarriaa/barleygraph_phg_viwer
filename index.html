@@ -11,9 +11,10 @@
         #viewer { width: 100vw; height: calc(100vh - 100px); cursor: grab; }
         #viewer:active { cursor: grabbing; }
         
-        select, input[type="number"] { background: #333; color: white; border: 1px solid #555; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
+        select, input[type="number"], input[type="text"] { background: #333; color: white; border: 1px solid #555; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
         select[multiple] { height: 40px; width: 150px; }
         input[type="number"] { width: 120px; font-family: monospace; }
+        input[type="text"] { width: 160px; font-family: monospace; }
         button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; }
         button:hover { background: #2980b9; }
         
@@ -29,7 +30,6 @@
         
         #tooltip { position: absolute; background: rgba(0,0,0,0.9); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; }
         
-        /* NEW: Version control badge */
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
 </head>
@@ -58,8 +58,16 @@
     </div>
     <div class="row">
         <span class="info-text">🖱️ Click & Drag to Pan | Scroll to Zoom</span>
+        
+        <!-- NEW SEARCH BAR FOR GENES -->
         <div style="margin-left:auto; display:flex; gap: 10px; align-items:center;">
-            <label class="info-text">Jump to Coordinate:</label>
+            <label class="info-text">Find Gene:</label>
+            <input type="text" id="geneSearch" placeholder="e.g. 1HG0000020">
+            <button onclick="searchGene()">Find</button>
+        </div>
+
+        <div style="margin-left:15px; border-left: 1px solid #555; padding-left: 15px; display:flex; gap: 10px; align-items:center;">
+            <label class="info-text">Jump Coord:</label>
             <input type="number" id="jumpStart" placeholder="Start Base">
             <input type="number" id="jumpEnd" placeholder="End Base (Opt)">
             <button onclick="jumpToRegion()">Go</button>
@@ -69,7 +77,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-11 | v1.1 (Gene Annotation Cache Fix)</div>
+<div id="version-tag">Build: 2026-09-11 | v1.2 (Gene Search Added)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -79,7 +87,6 @@
     const statusDiv = document.getElementById("status");
 
     let globalData = null;       
-    // Shifted initial view further down to easily see the genes at the top
     let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 100); 
 
     const colWidth = 300; 
@@ -104,8 +111,6 @@
         statusDiv.innerText = `Downloading & decompressing ${fileUrl}...`;
 
         const startTime = performance.now();
-        
-        // CACHE BUSTER: Forces GitHub Pages to fetch the newest JSON, skipping the browser cache
         const cacheBustedUrl = fileUrl + "?t=" + new Date().getTime();
         
         fetch(cacheBustedUrl)
@@ -139,6 +144,42 @@
     });
 
     document.getElementById('samplePicker').addEventListener('change', () => { if(globalData) updateHighlights(); });
+
+    // NEW FUNCTION: Search for gene by name
+    function searchGene() {
+        if(!globalData) return;
+        const query = document.getElementById('geneSearch').value.trim().toLowerCase();
+        if(!query) return;
+
+        // Find the first column that contains this gene name in its annotation
+        const targetIdx = globalData.columns.findIndex(c => c.anno && c.anno.toLowerCase().includes(query));
+
+        if (targetIdx !== -1) {
+            const targetCol = globalData.columns[targetIdx];
+            const targetX = targetIdx * colWidth;
+            
+            // Jump to the coordinate
+            svg.transition().duration(1000).call(
+                zoom.transform,
+                d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1)
+            );
+            
+            statusDiv.style.color = "#00ffcc";
+            statusDiv.innerText = `Found: ${query} at ${targetCol.start}-${targetCol.end}`;
+        } else {
+            statusDiv.style.color = "#e74c3c";
+            statusDiv.innerText = `Gene '${query}' not found on this chromosome.`;
+            setTimeout(() => { statusDiv.style.color = "#aaa"; statusDiv.innerText = "Ready."; }, 4000);
+        }
+    }
+
+    // Allow pressing "Enter" in the search box
+    document.getElementById("geneSearch").addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            searchGene();
+        }
+    });
 
     function computeChromosomeLayout() {
         const nodeMap = new Map();
