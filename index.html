@@ -28,6 +28,9 @@
         .base-track:hover { stroke: #999; }
         
         #tooltip { position: absolute; background: rgba(0,0,0,0.9); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; }
+        
+        /* NEW: Version control badge */
+        #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -66,6 +69,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
+<div id="version-tag">Build: 2026-09-11 | v1.1 (Gene Annotation Cache Fix)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -75,7 +79,8 @@
     const statusDiv = document.getElementById("status");
 
     let globalData = null;       
-    let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 50); // Shifted initial view down slightly to accommodate top text
+    // Shifted initial view further down to easily see the genes at the top
+    let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 100); 
 
     const colWidth = 300; 
     const transitionWidth = 100; 
@@ -91,7 +96,6 @@
     });
     svg.call(zoom).call(zoom.transform, currentTransform);
 
-    // FETCH FROM SERVER WITH ON-THE-FLY DECOMPRESSION
     document.getElementById('chromSelect').addEventListener('change', e => {
         const fileUrl = e.target.value;
         if (!fileUrl) return;
@@ -101,7 +105,10 @@
 
         const startTime = performance.now();
         
-        fetch(fileUrl)
+        // CACHE BUSTER: Forces GitHub Pages to fetch the newest JSON, skipping the browser cache
+        const cacheBustedUrl = fileUrl + "?t=" + new Date().getTime();
+        
+        fetch(cacheBustedUrl)
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const ds = new DecompressionStream('gzip');
@@ -118,7 +125,7 @@
                     sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
 
                     computeChromosomeLayout();
-                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 50).scale(1));
+                    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 100).scale(1));
                     
                     const endTime = performance.now();
                     statusDiv.style.color = "#2ecc71";
@@ -201,7 +208,7 @@
 
         svg.transition().duration(1000).call(
             zoom.transform,
-            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2 + 50).scale(targetScale)
+            d3.zoomIdentity.translate(width/2 - (targetX * targetScale), height/2 + 100).scale(targetScale)
         );
     }
 
@@ -241,7 +248,6 @@
             localMaxY = d3.max(viewSegs, d => d.y);
         }
         
-        // NEW MATH: Gene annotations pinned above everything
         const annoTextTopY = localMinY - 110;  
         const rulerTextTopY = localMinY - 60;  
         const rulerLineTopY = localMinY - 40;  
@@ -265,7 +271,7 @@
                 g.append("text").attr("class", "ruler-text").attr("x", startX).attr("y", rulerTextTopY).text(`${colInfo.chrom}:${colInfo.start}`);
             }
 
-            // GENE ANNOTATIONS FILTERED, ROTATED, AND AT THE TOP
+            // Genes
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
                 if (validAnnos.length > 0) {
