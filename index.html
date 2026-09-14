@@ -24,8 +24,13 @@
         .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
         .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
+        /* PGSB Gene Style */
         .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .anno-text:hover { fill: #ffffff; text-decoration: underline; }
+        
+        /* PanBaRT Gene Style (Added CSS here) */
+        .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
+        .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
         .base-track { fill: none; stroke: #444; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
         .base-track:hover { stroke: #999; }
@@ -78,7 +83,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-11 | v1.4 (HC+LC Gene DB)</div>
+<div id="version-tag">Build: 2026-09-11 | v1.5 (PanBaRT DB Added)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -97,73 +102,51 @@
     const colorScale = d3.scaleOrdinal(d3.schemeSet2);
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
 
-let globalGeneIndex = [];
+    let globalGeneIndex = [];
 
-async function loadGeneIndexes() {
+    async function loadGeneIndexes() {
+        const files = [
+            { file: "pgsb_genes.tsv", source: "PGSB" },
+            { file: "panbart_graph.tsv", source: "PanBaRT" }
+        ];
 
-    const files = [
-        {
-            file: "pgsb_genes.tsv",
-            source: "PGSB"
-        },
-        {
-            file: "panbart_graph.tsv",
-            source: "PanBaRT"
-        }
-    ];
-
-    for (const item of files) {
-
-        try {
-
-            const response = await fetch(
-                item.file + "?t=" + new Date().getTime()
-            );
-
-            if (!response.ok) {
-                console.warn(`Could not load ${item.file}`);
-                continue;
-            }
-
-            const text = await response.text();
-
-            text.split("\n").forEach(line => {
-
-                const parts = line.trim().split(/\s+/);
-
-                if (parts.length < 4) return;
-
-                const geneName = parts[0];
-                const graphChrom = parts[1];
-                const start = parseInt(parts[2]);
-                const end = parseInt(parts[3]);
-
-                if (isNaN(start) || isNaN(end)) return;
-
-                globalGeneIndex.push({
-                    name: geneName,
-                    graphChrom: graphChrom,
-                    chrom: graphChrom.split("_")[0],
-                    start: start,
-                    end: end,
-                    source: item.source
+        for (const item of files) {
+            try {
+                const response = await fetch(item.file + "?t=" + new Date().getTime());
+                if (!response.ok) {
+                    console.warn(`Could not load ${item.file}`);
+                    continue;
+                }
+                const text = await response.text();
+                text.split("\n").forEach(line => {
+                    const parts = line.trim().split(/\s+/);
+                    if (parts.length < 4) return;
+                    
+                    const geneName = parts[0];
+                    const graphChrom = parts[1];
+                    const start = parseInt(parts[2]);
+                    const end = parseInt(parts[3]);
+                    
+                    if (isNaN(start) || isNaN(end)) return;
+                    
+                    globalGeneIndex.push({
+                        name: geneName,
+                        graphChrom: graphChrom,
+                        chrom: graphChrom.split("_")[0],
+                        start: start,
+                        end: end,
+                        source: item.source
+                    });
                 });
-
-            });
-
-        } catch (err) {
-            console.warn(`Error loading ${item.file}:`, err);
+            } catch (err) {
+                console.warn(`Error loading ${item.file}:`, err);
+            }
         }
+        statusDiv.style.color = "#2ecc71";
+        statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
     }
 
-    statusDiv.style.color = "#2ecc71";
-
-    statusDiv.innerText =
-        `Ready. Linked ${globalGeneIndex.length} genes.`;
-}
-
-loadGeneIndexes();
-
+    loadGeneIndexes();
 
     const zoom = d3.zoom().scaleExtent([0.02, 10]).on("zoom", e => {
         g.attr("transform", e.transform);
@@ -287,6 +270,12 @@ loadGeneIndexes();
         statusDiv.style.color = "#00ffcc";
         statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
     }
+    
+    // UTILITY: Find column index for a given gene coordinate
+    function findColumnForAnnotation(gene) {
+        if (!globalData || !globalData.columns) return -1;
+        return globalData.columns.findIndex(c => gene.start >= parseInt(c.start) && gene.start <= parseInt(c.end));
+    }
 
     function computeChromosomeLayout() {
         const nodeMap = new Map();
@@ -405,6 +394,61 @@ loadGeneIndexes();
             }
         });
 
+        // --------------------------------------------------------
+        // PanBaRT annotations
+        // --------------------------------------------------------
+        
+        // Find which PanBaRT genes actually exist in the current visual window
+        const currentChrom = globalData.columns[0].chrom;
+        const viewStart = parseInt(viewCols[0].start);
+        const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
+        
+        const visiblePanBaRT = globalGeneIndex.filter(g => 
+            g.source === "PanBaRT" && 
+            g.chrom === currentChrom && 
+            g.start >= viewStart && 
+            g.start <= viewEnd
+        );
+
+        visiblePanBaRT.forEach(gene => {
+            const targetIdx = findColumnForAnnotation(gene);
+            if (targetIdx === -1) return;
+
+            const colCenterX = targetIdx * colWidth;
+
+            g.append("text")
+                .attr("class", "panbart-text")
+                .attr("x", colCenterX)
+                .attr("y", annoTextTopY - 25)
+                .attr(
+                    "transform",
+                    `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`
+                )
+                .text(gene.name)
+                .on("mouseover", () => {
+                    tooltip
+                        .style("display", "block")
+                        .html(`
+                            <div style="color:#ff66cc; margin-bottom:5px;">
+                                <strong>PanBaRT gene</strong>
+                            </div>
+                            <strong>${gene.name}</strong><br>
+                            ${gene.graphChrom}:${gene.start}-${gene.end}<br>
+                            Strand: ${gene.strand || "?"}
+                        `);
+                })
+                .on("mousemove", moveTooltip)
+                .on("mouseout", hideTooltip)
+                .on("click", () => {
+                    executeJump(
+                        gene.start,
+                        gene.end,
+                        gene.name
+                    );
+                });
+        });
+
+        // Render base tracks
         g.selectAll(".rail").data(viewSegs).enter().append("line").attr("class", "base-track")
             .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
@@ -413,6 +457,7 @@ loadGeneIndexes();
             })
             .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
 
+        // Render transitions
         g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "base-track")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
