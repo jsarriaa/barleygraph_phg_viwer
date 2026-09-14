@@ -97,31 +97,73 @@
     const colorScale = d3.scaleOrdinal(d3.schemeSet2);
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
 
-    // --------------------------------------------------------
-    // PRELOAD GLOBAL GENE INDEX (UPDATED TO pgsb_genes.tsv)
-    // --------------------------------------------------------
-    let globalGeneIndex = [];
-    fetch("pgsb_genes.tsv?t=" + new Date().getTime())
-        .then(res => res.text())
-        .then(text => {
-            const lines = text.split('\n');
-            lines.forEach(line => {
+let globalGeneIndex = [];
+
+async function loadGeneIndexes() {
+
+    const files = [
+        {
+            file: "pgsb_genes.tsv",
+            source: "PGSB"
+        },
+        {
+            file: "panbart_graph.tsv",
+            source: "PanBaRT"
+        }
+    ];
+
+    for (const item of files) {
+
+        try {
+
+            const response = await fetch(
+                item.file + "?t=" + new Date().getTime()
+            );
+
+            if (!response.ok) {
+                console.warn(`Could not load ${item.file}`);
+                continue;
+            }
+
+            const text = await response.text();
+
+            text.split("\n").forEach(line => {
+
                 const parts = line.trim().split(/\s+/);
-                if (parts.length >= 4) {
-                    const geneName = parts[0];
-                    const chrom = parts[1].split('_')[0];
-                    const start = parseInt(parts[2]);
-                    const end = parseInt(parts[3]);
-                    globalGeneIndex.push({ name: geneName, chrom: chrom, start: start, end: end });
-                }
+
+                if (parts.length < 4) return;
+
+                const geneName = parts[0];
+                const graphChrom = parts[1];
+                const start = parseInt(parts[2]);
+                const end = parseInt(parts[3]);
+
+                if (isNaN(start) || isNaN(end)) return;
+
+                globalGeneIndex.push({
+                    name: geneName,
+                    graphChrom: graphChrom,
+                    chrom: graphChrom.split("_")[0],
+                    start: start,
+                    end: end,
+                    source: item.source
+                });
+
             });
-            statusDiv.style.color = "#2ecc71";
-            statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes from DB.`;
-        })
-        .catch(err => {
-            statusDiv.style.color = "#f39c12";
-            statusDiv.innerText = "Ready (Global search disabled - pgsb_genes.tsv missing).";
-        });
+
+        } catch (err) {
+            console.warn(`Error loading ${item.file}:`, err);
+        }
+    }
+
+    statusDiv.style.color = "#2ecc71";
+
+    statusDiv.innerText =
+        `Ready. Linked ${globalGeneIndex.length} genes.`;
+}
+
+loadGeneIndexes();
+
 
     const zoom = d3.zoom().scaleExtent([0.02, 10]).on("zoom", e => {
         g.attr("transform", e.transform);
