@@ -8,19 +8,14 @@
         body { font-family: sans-serif; margin: 0; background: #121212; color: #fff; overflow: hidden; }
         #toolbar { background: #1e1e1e; border-bottom: 1px solid #333; z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; }
         .row { display: flex; gap: 15px; align-items: center; }
+        
         #viewer { 
             width: 100vw; 
             height: calc(100vh - 100px); 
             cursor: grab; 
-            /* Force hardware acceleration on the container */
+            /* Force hardware acceleration on the container only */
             transform: translateZ(0); 
         }
-        #viewer:active { cursor: grabbing; }
-
-        #viewer svg g {
-            will-change: transform;
-}
-
         #viewer:active { cursor: grabbing; }
         
         select, input[type="number"], input[type="text"] { background: #333; color: white; border: 1px solid #555; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
@@ -40,7 +35,7 @@
         .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .anno-text:hover { fill: #ffffff; text-decoration: underline; }
         
-        /* PanBaRT Gene Style (Added CSS here) */
+        /* PanBaRT Gene Style */
         .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
@@ -95,7 +90,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-14 | v1.6 (optimize website)</div>
+<div id="version-tag">Build: 2026-09-14 | v1.7 (GPU Buffer Fixed)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -289,7 +284,15 @@
         return globalData.columns.findIndex(c => gene.start >= parseInt(c.start) && gene.start <= parseInt(c.end));
     }
 
+    // GLOBALS FOR RENDERING
+    let lastRenderStart = -1;
+    let lastRenderEnd = -1;
+
     function computeChromosomeLayout() {
+        // RESET BUFFERS ON NEW CHROMOSOME LOAD
+        lastRenderStart = -1;
+        lastRenderEnd = -1;
+        
         const nodeMap = new Map();
         const cols = d3.group(globalData.segments, d => d.col);
         const incomingMap = d3.group(globalData.transitions, d => d.target);
@@ -329,9 +332,6 @@
         renderVisibleChunk();
     }
 
-    let lastRenderStart = -1;
-    let lastRenderEnd = -1;
-
     function renderVisibleChunk() {
         if (!globalData) return;
         
@@ -342,16 +342,15 @@
         const currentViewStart = Math.floor(minX / colWidth);
         const currentViewEnd = Math.ceil(maxX / colWidth);
 
-        // BUFFER CHECK: If the current view is safely inside our already-rendered buffer,
-        // DO NOTHING! Just let the GPU pan the existing SVG smoothly.
-        if (lastRenderStart !== -1 && 
-            currentViewStart > lastRenderStart + 5 && 
-            currentViewEnd < lastRenderEnd - 5) {
+        // BUFFER CHECK: Safely check if we are within the buffer, accounting for absolute edges
+        const safeLeft = (lastRenderStart === 0) || (currentViewStart > lastRenderStart + 5);
+        const safeRight = (lastRenderEnd === globalData.columns.length - 1) || (currentViewEnd < lastRenderEnd - 5);
+
+        if (lastRenderStart !== -1 && safeLeft && safeRight) {
             return; 
         }
 
-        // We reached the edge of the buffer! 
-        // Render 40 extra columns off-screen in both directions so the next pans are free.
+        // We reached the edge of the buffer! Render 40 extra columns off-screen
         const buffer = 40; 
         const startVisIdx = Math.max(0, currentViewStart - buffer);
         const endVisIdx = Math.min(globalData.columns.length - 1, currentViewEnd + buffer);
@@ -424,7 +423,6 @@
         // PanBaRT annotations
         // --------------------------------------------------------
         
-        // Find which PanBaRT genes actually exist in the current visual window
         const currentChrom = globalData.columns[0].chrom;
         const viewStart = parseInt(viewCols[0].start);
         const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
