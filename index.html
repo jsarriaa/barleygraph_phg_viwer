@@ -40,6 +40,10 @@
         .base-track { fill: none; stroke: #333; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
         .base-track:hover { stroke: #666; }
         
+        /* NEW: Tapered Ribbon Connectors */
+        .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
+        .transition-ribbon:hover { fill: #3a3a44; }
+        
         #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 320px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); }
         
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
@@ -105,6 +109,8 @@
     const transitionWidth = 100; 
     const railWidth = colWidth - transitionWidth;
     const colorScale = d3.scaleOrdinal(d3.schemeSet2);
+    
+    // Generates a thin line for inner wires and highlights
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
 
     let globalGeneIndex = [];
@@ -419,15 +425,17 @@
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
         
-        const maxThickness = 28;
+        // Emphasized dynamic sizing parameter
+        const maxThickness = 40; 
         const totalSamples = globalData.samples.length;
 
-        // PRE-CALCULATE STRAND DATA FOR PIPES
+        // PRE-CALCULATE DYNAMIC STRAND AND PIPE DATA
         viewSegs.forEach(d => {
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            d.base_t = Math.max(10, (d.samples.length / totalSamples) * maxThickness);
+            // Dynamic pipe sizing: 8px minimum, scales dramatically with genomes inside
+            d.base_t = Math.max(8, (d.samples.length / totalSamples) * maxThickness);
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             
             d.inner_t = Math.max(2, d.base_t * 0.35); 
@@ -488,29 +496,40 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Render Transitions FIRST (so they fall behind the pipes)
-        g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "base-track")
+        // 2. Tapered Ribbon Transitions (Always solid, no dashes!)
+        g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
-                return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
+                
+                // Calculates a dynamic filled polygon that tapers from Source thickness to Target thickness
+                const cpOffset = (tgt.x1 - src.x2) / 2;
+                const sTop = src.y - src.base_t / 2;
+                const sBot = src.y + src.base_t / 2;
+                const tTop = tgt.y - tgt.base_t / 2;
+                const tBot = tgt.y + tgt.base_t / 2;
+                
+                return `M ${src.x2},${sTop} 
+                        C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop} 
+                        L ${tgt.x1},${tBot} 
+                        C ${tgt.x1 - cpOffset},${tBot} ${src.x2 + cpOffset},${sBot} ${src.x2},${sBot} Z`;
             })
-            .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
-            .style("stroke-dasharray", d => { 
-                const src = globalData.nodeMap.get(d.source);
-                // Inherit dash only if the source pipe is strictly reverse majority
-                return (src && src.neg_samps.length > src.pos_samps.length) ? "5,5" : "none";
-            })
-            .on("mouseover", (e, d) => {
+            // No stroke applied. Only filled polygons.
+            .on("mouseover", function(e, d) {
+                d3.select(this).style("fill", "#3a3a44");
                 tooltip.style("display", "block").html(`<strong>Hash Transition</strong><br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
             })
-            .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+            .on("mousemove", moveTooltip)
+            .on("mouseout", function() {
+                d3.select(this).style("fill", "#1e1e24");
+                hideTooltip();
+            });
 
         // 3. Render The Hash Pipes (Segments)
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
-                d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); // Highlight pipe background
+                d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); 
                 tooltip.style("display", "block").html(`
                     <strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>
                     <strong>Total samples:</strong> ${d.samples.length}<br>
@@ -521,40 +540,35 @@
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).select(".base-pipe").style("stroke", "#1e1e24"); // Reset pipe background
+                d3.select(this).select(".base-pipe").style("stroke", "#1e1e24"); 
                 hideTooltip();
             });
 
-        // A. Draw thick background pipe
+        // A. Draw dynamic background pipe
         rails.append("line").attr("class", "base-pipe")
             .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
             .style("stroke-width", d => d.base_t)
             .style("stroke", "#1e1e24").style("stroke-linecap", "round").style("transition", "stroke 0.2s");
 
-        // B. Draw inner neutral wires
+        // B. Draw inner neutral wires (to visualize the strand data)
         rails.each(function(d) {
             const group = d3.select(this);
-            const insetX1 = d.x1 + 4; // Keeps wires inside the rounded pipe ends
+            const insetX1 = d.x1 + 4; 
             const insetX2 = d.x2 - 4;
 
             if (d.is_mixed) {
-                // Pipe splits into two parallel neutral wires
                 const offset = d.base_t * 0.22;
-                
-                // Top Wire (Forward, Solid Gray)
+                // Forward (Solid)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y - offset).attr("y2", d.y - offset)
                      .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-linecap", "round").style("pointer-events", "none");
-                
-                // Bottom Wire (Reverse, Dashed Gray)
+                // Reverse (Dashed)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y + offset).attr("y2", d.y + offset)
                      .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-dasharray", "4,4").style("stroke-linecap", "round").style("pointer-events", "none");
             } else {
-                // Pipe contains a single centered neutral wire
                 const isRev = d.neg_samps.length > 0;
                 const dash = isRev ? "5,5" : "none";
-                
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y).attr("y2", d.y)
                      .style("stroke-width", Math.max(2, d.base_t * 0.5)).style("stroke", "#888").style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
@@ -577,7 +591,6 @@
             const stackOffset = (idx - (selected.length - 1) / 2) * 3; 
             const color = colorScale(sample);
 
-            // Highlight lines flowing through the specific inner wires
             hlLayer.selectAll(`.hl-r-${idx}`).data(window.activeSegs.filter(s => s.samples.includes(sample))).enter().append("line")
                    .attr("x1", d => d.x1 + 4).attr("x2", d => d.x2 - 4)
                    .attr("y1", d => {
@@ -595,7 +608,7 @@
                    .style("stroke", color).style("stroke-width", 2.5).style("pointer-events", "none")
                    .style("stroke-dasharray", d => (d.strands && d.strands[sample] === "-") ? "4,4" : "none");
 
-            // Highlight Transitions
+            // Highlight Transitions (Solid ONLY!)
             hlLayer.selectAll(`.hl-t-${idx}`).data(window.activeTrans.filter(t => t.samples.includes(sample))).enter().append("path")
                    .attr("d", d => {
                        const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
@@ -603,11 +616,8 @@
                        return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
                    })
                    .attr("transform", `translate(0, ${stackOffset})`)
-                   .style("stroke", color).style("stroke-width", 2.5).style("fill", "none").style("pointer-events", "none")
-                   .style("stroke-dasharray", d => { 
-                       const src = globalData.nodeMap.get(d.source);
-                       return (src && src.strands && src.strands[sample] === "-") ? "4,4" : "none";
-                   });
+                   .style("stroke", color).style("stroke-width", 2.5).style("fill", "none").style("pointer-events", "none");
+                   // Removed stroke-dasharray! It will always be solid inside the transition.
         });
     }
 
