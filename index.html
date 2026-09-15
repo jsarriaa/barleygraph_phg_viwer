@@ -427,11 +427,9 @@
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            // Base pipe thickness: thick enough to hold two lines if needed, min 10px
             d.base_t = Math.max(10, (d.samples.length / totalSamples) * maxThickness);
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             
-            // Inner wire thickness is proportional to the pipe
             d.inner_t = Math.max(2, d.base_t * 0.35); 
         });
 
@@ -515,9 +513,9 @@
                 d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); // Highlight pipe background
                 tooltip.style("display", "block").html(`
                     <strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>
-                    <strong>Total Samples:</strong> ${d.samples.length}<br>
-                    <span style="color:#4CAF50;">Forward (+): ${d.pos_samps.length}</span> | 
-                    <span style="color:#FF5252;">Reverse (-): ${d.neg_samps.length}</span><br>
+                    <strong>Total samples:</strong> ${d.samples.length}<br>
+                    <span style="color:#4CAF50;">Forward strand (+) = ${d.pos_samps.length}</span> | 
+                    <span style="color:#FF5252;">Reverse strand (-) = ${d.neg_samps.length}</span><br>
                     <br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}
                 `);
             })
@@ -533,34 +531,33 @@
             .style("stroke-width", d => d.base_t)
             .style("stroke", "#1e1e24").style("stroke-linecap", "round").style("transition", "stroke 0.2s");
 
-        // B. Draw inner colored wires
+        // B. Draw inner neutral wires
         rails.each(function(d) {
             const group = d3.select(this);
             const insetX1 = d.x1 + 4; // Keeps wires inside the rounded pipe ends
             const insetX2 = d.x2 - 4;
 
             if (d.is_mixed) {
-                // Pipe splits into two parallel wires
+                // Pipe splits into two parallel neutral wires
                 const offset = d.base_t * 0.22;
                 
-                // Top Wire (Forward, Green)
+                // Top Wire (Forward, Solid Gray)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y - offset).attr("y2", d.y - offset)
-                     .style("stroke-width", d.inner_t).style("stroke", "#4CAF50").style("stroke-linecap", "round").style("pointer-events", "none");
+                     .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-linecap", "round").style("pointer-events", "none");
                 
-                // Bottom Wire (Reverse, Red Dashed)
+                // Bottom Wire (Reverse, Dashed Gray)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y + offset).attr("y2", d.y + offset)
-                     .style("stroke-width", d.inner_t).style("stroke", "#FF5252").style("stroke-dasharray", "4,4").style("stroke-linecap", "round").style("pointer-events", "none");
+                     .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-dasharray", "4,4").style("stroke-linecap", "round").style("pointer-events", "none");
             } else {
-                // Pipe contains a single centered wire
+                // Pipe contains a single centered neutral wire
                 const isRev = d.neg_samps.length > 0;
-                const color = isRev ? "#FF5252" : (d.pos_samps.length > 0 ? "#4CAF50" : "#666");
                 const dash = isRev ? "5,5" : "none";
                 
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y).attr("y2", d.y)
-                     .style("stroke-width", Math.max(2, d.base_t * 0.5)).style("stroke", color).style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
+                     .style("stroke-width", Math.max(2, d.base_t * 0.5)).style("stroke", "#888").style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
             }
         });
 
