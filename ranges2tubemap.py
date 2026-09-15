@@ -115,7 +115,7 @@ def main():
                 if h != '.': hash_groups[h].append(samples[s_idx])
             
             # Determine the consensus strand for this column (majority rule)
-            col_strands = [hash_to_strand.get(h, '+') for h in hash_groups.keys() if h != '.']
+            col_strands = [hash_to_strand.get(h.strip('<>'), '+') for h in hash_groups.keys() if h != '.']
             consensus_strand = max(set(col_strands), key=col_strands.count) if col_strands else '+'
             
             data["columns"].append({
@@ -128,12 +128,13 @@ def main():
             })
             
             for h, samps in hash_groups.items():
+                clean_h = h.strip('<>') # Remove brackets for dictionary lookup
                 data["segments"].append({
                     "id": f"c{col_idx}_{h}", 
                     "col": col_idx, 
                     "hash": h, 
                     "samples": samps,
-                    "strand": hash_to_strand.get(h, "?")  # Added to individual blocks
+                    "strand": hash_to_strand.get(clean_h, "?")  # Now it will find the match!
                 })
 
             if col_idx > 0:
