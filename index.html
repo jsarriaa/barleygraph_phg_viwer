@@ -88,11 +88,11 @@
         .ruler-line { stroke: var(--ruler-line); stroke-width: 1px; stroke-dasharray: 4,4; }
         .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
-        /* Annotations */
-        .anno-text { fill: var(--primary-color); font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
-        .anno-text:hover { text-decoration: underline; opacity: 0.8; }
-        .panbart-text { fill: var(--secondary-color); font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
-        .panbart-text:hover { text-decoration: underline; opacity: 0.8; }
+        /* Annotations - Increased font size for legibility */
+        .anno-text { fill: var(--primary-color); font-size: 15px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s, opacity 0.2s; }
+        .anno-text:hover { text-decoration: underline; opacity: 0.7; }
+        .panbart-text { fill: var(--secondary-color); font-size: 15px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s, opacity 0.2s; }
+        .panbart-text:hover { text-decoration: underline; opacity: 0.7; }
         
         /* Connectors and Pipes */
         .transition-ribbon { fill: var(--pipe-fill); cursor: pointer; transition: fill 0.2s; }
@@ -148,7 +148,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.7 (Contrast Fix & Escaped Hashes)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.8 (PanBarLex & Gene Stacking)</div>
 
 <script>
     function toggleTheme() {
@@ -523,7 +523,11 @@
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
 
-        // Rulers & Gene Annotations
+        // Keep track of how high we have stacked genes in each column
+        const colGeneOffsets = {}; 
+        const geneSpacing = 22; // Pixels to move up for each new gene
+
+        // Rulers & Gene Annotations (PGSB)
         viewCols.forEach(colInfo => {
             const visualIdx = globalData.columns.indexOf(colInfo);
             const colCenterX = visualIdx * colWidth;
@@ -541,25 +545,32 @@
 
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
-                if (validAnnos.length > 0) {
+                
+                validAnnos.forEach(rawGene => {
+                    const gene = rawGene.trim();
+                    let currentOffset = colGeneOffsets[colCenterX] || 0;
+                    let yPos = annoTextTopY - currentOffset;
+
                     let strandArrow = "";
                     if (colInfo.strand === "+") strandArrow = " →";
                     if (colInfo.strand === "-") strandArrow = " ←";
 
-                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
-                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', ') + strandArrow)
+                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", yPos)
+                     .attr("transform", `rotate(-30, ${colCenterX}, ${yPos})`).text(gene + strandArrow)
                      .on("mouseover", (e) => {
-                         tooltip.style("display", "block").html(`<div style='color:var(--primary-color); margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:var(--dim-text);">Strand: ${colInfo.strand || '?'}</span>`);
+                         tooltip.style("display", "block").html(`<div style='color:var(--primary-color); margin-bottom:5px;'><strong>PGSB Gene (Click to view on PanBarLex)</strong></div>${gene}<br><span style="color:var(--dim-text);">Strand: ${colInfo.strand || '?'}</span>`);
                      })
                      .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                      .on("click", () => {
-                         validAnnos.forEach(gene => { window.open(`https://plants.ensembl.org/Hordeum_vulgare/Gene/Summary?g=${gene}`, '_blank'); });
+                         window.open(`https://panbarlex.ipk-gatersleben.de/#gene/${gene}`, '_blank');
                      });
-                }
+                     
+                     colGeneOffsets[colCenterX] = currentOffset + geneSpacing;
+                });
             }
         });
 
-        // PanBaRT annotations
+        // PanBaRT annotations (Stacks directly on top of any PGSB genes in the same column)
         const currentChrom = globalData.columns[0].chrom;
         const viewStart = parseInt(viewCols[0].start);
         const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
@@ -570,12 +581,19 @@
             if (targetIdx === -1) return;
             const colCenterX = targetIdx * colWidth;
 
-            g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", annoTextTopY - 25)
-                .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`).text(gene.name)
+            let currentOffset = colGeneOffsets[colCenterX] || 0;
+            let yPos = annoTextTopY - currentOffset;
+
+            g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", yPos)
+                .attr("transform", `rotate(-30, ${colCenterX}, ${yPos})`).text(gene.name)
                 .on("mouseover", () => {
-                    tooltip.style("display", "block").html(`<div style="color:var(--secondary-color); margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
+                    tooltip.style("display", "block").html(`<div style="color:var(--secondary-color); margin-bottom:5px;"><strong>PanBaRT gene (Click to view on PanBarLex)</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
                 }).on("mousemove", moveTooltip).on("mouseout", hideTooltip)
-                .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
+                .on("click", () => { 
+                    window.open(`https://panbarlex.ipk-gatersleben.de/#gene/${gene.name}`, '_blank'); 
+                });
+                
+            colGeneOffsets[colCenterX] = currentOffset + geneSpacing;
         });
 
         // Ribbon Transitions
@@ -595,8 +613,6 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).style("fill", "var(--pipe-hover)");
                 const tgtNode = globalData.nodeMap.get(d.target);
-                
-                // ESCAPING HASH TEXT SO THE BROWSER DOESN'T HIDE IT!
                 const safeTgtHash = (tgtNode && tgtNode.hash) ? tgtNode.hash.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Split/Merge';
                 
                 tooltip.style("display", "block").html(`
@@ -617,7 +633,6 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).select(".base-pipe").style("fill", "var(--pipe-hover)"); 
                 
-                // ESCAPING HASH TEXT SO THE BROWSER DOESN'T HIDE IT!
                 const safeHash = d.hash ? d.hash.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Split/Merge';
                 
                 let tip = `<div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>${safeHash}</strong></div>`;
