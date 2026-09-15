@@ -40,11 +40,11 @@
         .base-track { fill: none; stroke: #333; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
         .base-track:hover { stroke: #666; }
         
-        /* NEW: Tapered Ribbon Connectors */
+        /* Tapered Ribbon Connectors */
         .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
         .transition-ribbon:hover { fill: #3a3a44; }
         
-        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 320px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); }
+        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 350px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
         
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
@@ -110,7 +110,6 @@
     const railWidth = colWidth - transitionWidth;
     const colorScale = d3.scaleOrdinal(d3.schemeSet2);
     
-    // Generates a thin line for inner wires and highlights
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
 
     let globalGeneIndex = [];
@@ -425,8 +424,9 @@
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
         
-        // Emphasized dynamic sizing parameter
-        const maxThickness = 40; 
+        // Massive dynamic scaling to make sizes incredibly obvious
+        const minThickness = 6;
+        const maxThickness = 60; 
         const totalSamples = globalData.samples.length;
 
         // PRE-CALCULATE DYNAMIC STRAND AND PIPE DATA
@@ -434,8 +434,8 @@
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            // Dynamic pipe sizing: 8px minimum, scales dramatically with genomes inside
-            d.base_t = Math.max(8, (d.samples.length / totalSamples) * maxThickness);
+            // Exact linear scale from minThickness up to maxThickness
+            d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             
             d.inner_t = Math.max(2, d.base_t * 0.35); 
@@ -496,13 +496,13 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Tapered Ribbon Transitions (Always solid, no dashes!)
+        // 2. Tapered Ribbon Transitions (Always solid polygons)
         g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
                 
-                // Calculates a dynamic filled polygon that tapers from Source thickness to Target thickness
+                // Poly-ribbon connecting the top and bottom edges of both pipes dynamically
                 const cpOffset = (tgt.x1 - src.x2) / 2;
                 const sTop = src.y - src.base_t / 2;
                 const sBot = src.y + src.base_t / 2;
@@ -514,10 +514,9 @@
                         L ${tgt.x1},${tBot} 
                         C ${tgt.x1 - cpOffset},${tBot} ${src.x2 + cpOffset},${sBot} ${src.x2},${sBot} Z`;
             })
-            // No stroke applied. Only filled polygons.
             .on("mouseover", function(e, d) {
                 d3.select(this).style("fill", "#3a3a44");
-                tooltip.style("display", "block").html(`<strong>Hash Transition</strong><br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
+                tooltip.style("display", "block").html(`<strong>Hash Transition</strong><br><strong>${d.samples.length} Samples</strong><br><br><span style="color:#aaa;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>`);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
@@ -530,13 +529,22 @@
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
                 d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); 
-                tooltip.style("display", "block").html(`
-                    <strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>
-                    <strong>Total samples:</strong> ${d.samples.length}<br>
-                    <span style="color:#4CAF50;">Forward strand (+) = ${d.pos_samps.length}</span> | 
-                    <span style="color:#FF5252;">Reverse strand (-) = ${d.neg_samps.length}</span><br>
-                    <br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}
-                `);
+                
+                // Formatted Tooltip with Genome Lists per Strand
+                let tip = `<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>`;
+                tip += `<strong>Total samples:</strong> ${d.samples.length}<br><br>`;
+                
+                if (d.pos_samps.length > 0) {
+                    tip += `<span style="color:#4CAF50;"><strong>Forward strand (+) = ${d.pos_samps.length}</strong></span><br>`;
+                    tip += `<span style="font-size:12px; color:#aaa;">${d.pos_samps.slice(0, 20).join(', ')}${d.pos_samps.length > 20 ? '...' : ''}</span><br><br>`;
+                }
+                
+                if (d.neg_samps.length > 0) {
+                    tip += `<span style="color:#FF5252;"><strong>Reverse strand (-) = ${d.neg_samps.length}</strong></span><br>`;
+                    tip += `<span style="font-size:12px; color:#aaa;">${d.neg_samps.slice(0, 20).join(', ')}${d.neg_samps.length > 20 ? '...' : ''}</span><br>`;
+                }
+                
+                tooltip.style("display", "block").html(tip);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
@@ -617,7 +625,6 @@
                    })
                    .attr("transform", `translate(0, ${stackOffset})`)
                    .style("stroke", color).style("stroke-width", 2.5).style("fill", "none").style("pointer-events", "none");
-                   // Removed stroke-dasharray! It will always be solid inside the transition.
         });
     }
 
