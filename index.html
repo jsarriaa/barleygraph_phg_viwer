@@ -36,10 +36,9 @@
         .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
-        /* Base Tracks & Pipes */
+        /* Base Tracks & Connectors */
         .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
         .transition-ribbon:hover { fill: #3a3a44; }
-        .connector-wire { fill: none; stroke: #888; stroke-linecap: round; stroke-width: 2.5px; pointer-events: none; }
         
         #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 350px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
         
@@ -340,6 +339,21 @@
         const cols = d3.group(globalData.segments, d => d.col);
         const incomingMap = d3.group(globalData.transitions, d => d.target);
 
+        // Pre-calculate ALL dynamic sizes here globally so off-screen connectors can perfectly scale
+        const minThickness = 14; 
+        const maxThickness = 60; 
+        const totalSamples = globalData.samples.length;
+
+        globalData.segments.forEach(d => {
+            d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
+            d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
+            
+            // This ensures dynamic sizing applies instantly everywhere
+            d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
+            d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
+            d.inner_t = 2.5; 
+        });
+
         globalData.columns.forEach((colInfo, visualIndex) => {
             let segsInCol = cols.get(colInfo.col) || [];
             
@@ -420,24 +434,6 @@
         const rulerTextTopY = localMinY - 60;  
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
-        
-        // Massive dynamic scaling to make sizes incredibly obvious
-        const minThickness = 14; // Enough room to hold two 2.5px wires cleanly
-        const maxThickness = 60; 
-        const totalSamples = globalData.samples.length;
-
-        // PRE-CALCULATE DYNAMIC STRAND AND PIPE DATA
-        viewSegs.forEach(d => {
-            d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
-            d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
-            
-            // Background pipe scales dramatically with genome count
-            d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
-            d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
-            
-            // Inner Wires remain a fixed, standard thin width no matter the pipe size!
-            d.inner_t = 2.5; 
-        });
 
         // 1. Rulers & Gene Annotations
         viewCols.forEach(colInfo => {
@@ -494,7 +490,7 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Tapered Ribbon Transitions (Background Connectors)
+        // 2. Tapered Ribbon Transitions (Background Connectors - NO inner wires)
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
         
         transitionGroup.append("path").attr("class", "transition-ribbon")
@@ -502,6 +498,7 @@
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
                 
+                // Poly-ribbon connecting the top and bottom edges of both pipes dynamically
                 const cpOffset = (tgt.x1 - src.x2) / 2;
                 const sTop = src.y - src.base_t / 2;
                 const sBot = src.y + src.base_t / 2;
@@ -521,14 +518,6 @@
             .on("mouseout", function() {
                 d3.select(this).style("fill", "#1e1e24");
                 hideTooltip();
-            });
-
-        // Add a standard thin wire through the center of the transition so it visually links the hubs
-        transitionGroup.append("path").attr("class", "connector-wire")
-            .attr("d", d => {
-                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
-                if(!src || !tgt) return "";
-                return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
             });
 
         // 3. Render The Hash Pipes (Segments)
