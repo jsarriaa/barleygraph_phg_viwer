@@ -24,7 +24,7 @@
         button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; }
         button:hover { background: #2980b9; }
         
-        #status { font-family: monospace; font-size: 12px; padding: 5px 10px; border-radius: 4px; background: #000; }
+        #status { font-family: monospace; font-size: 13px; padding: 5px 10px; border-radius: 4px; background: #000; font-weight: bold;}
         .info-text { font-size: 13px; color: #aaa; }
         
         .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
@@ -89,7 +89,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.3 (Fast Backbone Alignment)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.4 (Async UI Progress)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -192,9 +192,9 @@
         if (!fileUrl) return;
         
         statusDiv.style.color = "#f39c12";
-        statusDiv.innerText = `Downloading & decompressing ${fileUrl}...`;
+        statusDiv.innerText = `Downloading data...`;
 
-        const startTime = performance.now();
+        const loadStartTime = performance.now();
         fetch(fileUrl + "?t=" + new Date().getTime())
             .then(response => {
                 const ds = new DecompressionStream('gzip');
@@ -202,25 +202,22 @@
                 return new Response(decompressedStream).json();
             })
             .then(data => {
-                statusDiv.innerText = "Calculating ultra-fast graph placement...";
-                setTimeout(() => {
-                    globalData = data;
-                    const sampSelect = d3.select("#samplePicker");
-                    sampSelect.selectAll("option").remove();
-                    sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
+                statusDiv.innerText = "Extracting sequences...";
+                globalData = data;
+                
+                const sampSelect = d3.select("#samplePicker");
+                sampSelect.selectAll("option").remove();
+                sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
 
-                    computeChromosomeLayout();
-                    
+                // Run the layout calculation asynchronously so it updates the UI!
+                computeChromosomeLayout(loadStartTime).then(() => {
                     if (pendingJump) {
                         executeJump(pendingJump.start, pendingJump.end, pendingJump.gene);
                         pendingJump = null;
                     } else {
                         svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 100).scale(1));
-                        const endTime = performance.now();
-                        statusDiv.style.color = "#2ecc71";
-                        statusDiv.innerText = `Loaded ${globalData.columns.length} regions in ${((endTime - startTime) / 1000).toFixed(2)}s`;
                     }
-                }, 50);
+                });
             });
     });
 
@@ -290,7 +287,8 @@
     let lastRenderStart = -1;
     let lastRenderEnd = -1;
 
-    function computeChromosomeLayout() {
+    // Converted to async function to allow UI updates during calculation
+    async function computeChromosomeLayout(loadStartTime) {
         lastRenderStart = -1;
         lastRenderEnd = -1;
         
@@ -298,97 +296,121 @@
         const cols = d3.group(globalData.segments, d => d.col);
         const incomingMap = d3.group(globalData.transitions, d => d.target);
 
-        // EXTREMELY EXAGGERATED SCALING: 1 genome = 6px, 10 genomes = 30px, 76 genomes = ~205px
         const minThickness = 6; 
         const pipeGap = 15; 
+
+        statusDiv.style.color = "#f39c12";
+        statusDiv.innerText = "Indexing thickness mappings...";
+
+        // Yield execution to repaint "Indexing" status
+        await new Promise(r => setTimeout(r, 10));
 
         globalData.segments.forEach(d => {
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
-            // Exactly forces 1 genome -> 6px, and 10 genomes -> 30px
             d.base_t = minThickness + ((d.samples.length - 1) * 2.666); 
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             d.inner_t = 2.5; 
-            nodeMap.set(d.id, d); // Populate map early for fast lookups
+            nodeMap.set(d.id, d);
         });
 
-        let prevBackboneY = 0; // Tracks the perfectly straight line of the main path
+        let prevBackboneY = 0; 
+        
+        const totalCols = globalData.columns.length;
+        const chunkSize = 500; // Process chunks of 500 columns before updating the UI
+        const calcStartTime = performance.now();
 
-        // LIGHTNING FAST BACKBONE ALIGNMENT ALGORITHM
-        globalData.columns.forEach((colInfo, visualIndex) => {
-            let segsInCol = cols.get(colInfo.col) || [];
+        for (let i = 0; i < totalCols; i += chunkSize) {
+            const chunk = globalData.columns.slice(i, i + chunkSize);
             
-            if (visualIndex === 0) {
-                // First column just stacks heaviest to lightest
-                segsInCol.sort((a, b) => b.samples.length - a.samples.length);
-                let currentY = 0;
-                segsInCol.forEach(n => {
-                    n.y = currentY + n.base_t / 2;
-                    currentY += n.base_t + pipeGap;
-                });
-                const shift = currentY / 2;
-                segsInCol.forEach(n => n.y -= shift);
-                prevBackboneY = segsInCol.length > 0 ? segsInCol[0].y : 0; 
-            } else {
-                // Determine ideal Y for each node based on its heaviest incoming transition
-                segsInCol.forEach(n => {
-                    const incoming = incomingMap.get(n.id) || [];
+            chunk.forEach((colInfo, localIndex) => {
+                const visualIndex = i + localIndex;
+                let segsInCol = cols.get(colInfo.col) || [];
+                
+                if (visualIndex === 0) {
+                    segsInCol.sort((a, b) => b.samples.length - a.samples.length);
+                    let currentY = 0;
+                    segsInCol.forEach(n => {
+                        n.y = currentY + n.base_t / 2;
+                        currentY += n.base_t + pipeGap;
+                    });
+                    const shift = currentY / 2;
+                    segsInCol.forEach(n => n.y -= shift);
+                    prevBackboneY = segsInCol.length > 0 ? segsInCol[0].y : 0; 
+                } else {
+                    segsInCol.forEach(n => {
+                        const incoming = incomingMap.get(n.id) || [];
+                        if (incoming.length > 0) {
+                            let bestTrans = incoming[0];
+                            for(let j = 1; j < incoming.length; j++) {
+                                if (incoming[j].samples.length > bestTrans.samples.length) bestTrans = incoming[j];
+                            }
+                            const sourceNode = nodeMap.get(bestTrans.source);
+                            n.idealY = (sourceNode && sourceNode.y !== undefined) ? sourceNode.y : prevBackboneY;
+                        } else {
+                            n.idealY = prevBackboneY;
+                        }
+                    });
+
+                    segsInCol.sort((a, b) => a.idealY - b.idealY);
+
+                    let currentY = 0;
+                    segsInCol.forEach(n => {
+                        n.y = currentY + n.base_t / 2;
+                        currentY += n.base_t + pipeGap;
+                    });
+
+                    let heaviestNode = segsInCol[0];
+                    segsInCol.forEach(n => {
+                        if (n.samples.length > heaviestNode.samples.length) heaviestNode = n;
+                    });
+
+                    let targetY = prevBackboneY;
+                    const incoming = incomingMap.get(heaviestNode.id) || [];
                     if (incoming.length > 0) {
                         let bestTrans = incoming[0];
-                        for(let i = 1; i < incoming.length; i++) {
-                            if (incoming[i].samples.length > bestTrans.samples.length) bestTrans = incoming[i];
+                        for(let j = 1; j < incoming.length; j++) {
+                            if (incoming[j].samples.length > bestTrans.samples.length) bestTrans = incoming[j];
                         }
                         const sourceNode = nodeMap.get(bestTrans.source);
-                        n.idealY = (sourceNode && sourceNode.y !== undefined) ? sourceNode.y : prevBackboneY;
-                    } else {
-                        n.idealY = prevBackboneY;
+                        if (sourceNode && sourceNode.y !== undefined) targetY = sourceNode.y;
                     }
-                });
 
-                // Sort by ideal Y to prevent crossing lines
-                segsInCol.sort((a, b) => a.idealY - b.idealY);
+                    const shift = heaviestNode.y - targetY;
+                    segsInCol.forEach(n => n.y -= shift);
 
-                // Stack tightly
-                let currentY = 0;
-                segsInCol.forEach(n => {
-                    n.y = currentY + n.base_t / 2;
-                    currentY += n.base_t + pipeGap;
-                });
-
-                // Find the thickest node in this current column
-                let heaviestNode = segsInCol[0];
-                segsInCol.forEach(n => {
-                    if (n.samples.length > heaviestNode.samples.length) heaviestNode = n;
-                });
-
-                // Find where the thickest node wants to connect
-                let targetY = prevBackboneY;
-                const incoming = incomingMap.get(heaviestNode.id) || [];
-                if (incoming.length > 0) {
-                    let bestTrans = incoming[0];
-                    for(let i = 1; i < incoming.length; i++) {
-                        if (incoming[i].samples.length > bestTrans.samples.length) bestTrans = incoming[i];
-                    }
-                    const sourceNode = nodeMap.get(bestTrans.source);
-                    if (sourceNode && sourceNode.y !== undefined) targetY = sourceNode.y;
+                    prevBackboneY = heaviestNode.y;
                 }
 
-                // Force the entire column to shift so the heaviest node perfectly aligns with its parent
-                const shift = heaviestNode.y - targetY;
-                segsInCol.forEach(n => n.y -= shift);
-
-                prevBackboneY = heaviestNode.y;
-            }
-
-            // Assign X coords
-            const colCenterX = visualIndex * colWidth;
-            segsInCol.forEach(n => {
-                n.x1 = colCenterX - railWidth/2;
-                n.x2 = colCenterX + railWidth/2;
+                const colCenterX = visualIndex * colWidth;
+                segsInCol.forEach(n => {
+                    n.x1 = colCenterX - railWidth/2;
+                    n.x2 = colCenterX + railWidth/2;
+                });
             });
-        });
-        
+
+            // UI PROGRESS UPDATE
+            const colsDone = i + chunk.length;
+            const progress = Math.min(100, Math.round((colsDone / totalCols) * 100));
+            const elapsed = (performance.now() - calcStartTime) / 1000;
+            const colsPerSec = colsDone / elapsed;
+            const remainingCols = totalCols - colsDone;
+            let eta = remainingCols / colsPerSec;
+            if (!isFinite(eta) || eta < 0) eta = 0;
+
+            statusDiv.style.color = "#3498db";
+            statusDiv.innerText = `Calculating Layout: ${progress}% (ETA: ${eta.toFixed(1)}s)`;
+            
+            // Pauses Javascript thread for 1 millisecond, allowing Browser to paint the text update!
+            await new Promise(r => setTimeout(r, 1));
+        }
+
+        globalData.nodeMap = nodeMap;
         renderVisibleChunk();
+        
+        const totalTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
+        statusDiv.style.color = "#2ecc71";
+        statusDiv.innerText = `Success: Placed ${totalCols} blocks in ${totalTime}s`;
     }
 
     function renderVisibleChunk() {
@@ -513,8 +535,9 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).style("fill", "#3a3a44");
                 const tgtNode = globalData.nodeMap.get(d.target);
+                const tgtHash = tgtNode ? (tgtNode.hash ? tgtNode.hash : 'Split/Merge') : 'Unknown';
                 tooltip.style("display", "block").html(`
-                    <div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>${tgtNode ? tgtNode.hash : 'Split/Merge'}</strong></div>
+                    <div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
                     <strong>Total samples: ${d.samples.length}</strong><br><br>
                     <span style="color:#aaa;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
                 `);
@@ -531,7 +554,6 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).select(".base-pipe").style("fill", "#4a4a4a"); 
                 
-                // NO "Hash:" text, just the raw string
                 let tip = `<div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
