@@ -89,7 +89,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.1 (Exaggerated Square Pipes)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.2 (Dynamic Graph Placement & Size)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -111,14 +111,12 @@
 
     let globalGeneIndex = [];
 
-    // URL Management
     function updateURLParams(params) {
         const url = new URL(window.location);
         url.searchParams.delete('gene');
         url.searchParams.delete('chrom');
         url.searchParams.delete('start');
         url.searchParams.delete('end');
-        
         for (const [key, value] of Object.entries(params)) {
             if (value) url.searchParams.set(key, value);
         }
@@ -156,42 +154,23 @@
     }
 
     async function loadGeneIndexes() {
-        const files = [
-            { file: "pgsb_genes.tsv", source: "PGSB" },
-            { file: "panbart_graph.tsv", source: "PanBaRT" }
-        ];
-
+        const files = [ { file: "pgsb_genes.tsv", source: "PGSB" }, { file: "panbart_graph.tsv", source: "PanBaRT" } ];
         for (const item of files) {
             try {
                 const response = await fetch(item.file + "?t=" + new Date().getTime());
-                if (!response.ok) {
-                    console.warn(`Could not load ${item.file}`);
-                    continue;
-                }
+                if (!response.ok) continue;
                 const text = await response.text();
                 text.split("\n").forEach(line => {
                     const parts = line.trim().split(/\s+/);
                     if (parts.length < 4) return;
-                    
-                    const geneName = parts[0];
-                    const graphChrom = parts[1];
-                    const start = parseInt(parts[2]);
-                    const end = parseInt(parts[3]);
-                    
+                    const start = parseInt(parts[2]), end = parseInt(parts[3]);
                     if (isNaN(start) || isNaN(end)) return;
-                    
                     globalGeneIndex.push({
-                        name: geneName,
-                        graphChrom: graphChrom,
-                        chrom: graphChrom.split("_")[0],
-                        start: start,
-                        end: end,
-                        source: item.source
+                        name: parts[0], graphChrom: parts[1], chrom: parts[1].split("_")[0],
+                        start: start, end: end, source: item.source
                     });
                 });
-            } catch (err) {
-                console.warn(`Error loading ${item.file}:`, err);
-            }
+            } catch (err) {}
         }
         statusDiv.style.color = "#2ecc71";
         statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
@@ -216,20 +195,16 @@
         statusDiv.innerText = `Downloading & decompressing ${fileUrl}...`;
 
         const startTime = performance.now();
-        const cacheBustedUrl = fileUrl + "?t=" + new Date().getTime();
-        
-        fetch(cacheBustedUrl)
+        fetch(fileUrl + "?t=" + new Date().getTime())
             .then(response => {
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const ds = new DecompressionStream('gzip');
                 const decompressedStream = response.body.pipeThrough(ds);
                 return new Response(decompressedStream).json();
             })
             .then(data => {
-                statusDiv.innerText = "Parsing JSON & calculating topology...";
+                statusDiv.innerText = "Calculating dynamic graph placement...";
                 setTimeout(() => {
                     globalData = data;
-                    
                     const sampSelect = d3.select("#samplePicker");
                     sampSelect.selectAll("option").remove();
                     sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
@@ -246,10 +221,6 @@
                         statusDiv.innerText = `Loaded ${globalData.columns.length} regions in ${((endTime - startTime) / 1000).toFixed(2)}s`;
                     }
                 }, 50);
-            })
-            .catch(err => {
-                statusDiv.style.color = "#e74c3c";
-                statusDiv.innerText = `Error loading file: ${err.message}`;
             });
     });
 
@@ -260,15 +231,10 @@
 
         if (globalGeneIndex.length > 0) {
             const match = globalGeneIndex.find(g => g.name.toLowerCase().includes(query));
-            
             if (match) {
                 updateURLParams({ gene: match.name });
-                statusDiv.style.color = "#00ffcc";
-                statusDiv.innerText = `Found ${match.name} on ${match.chrom}. Preparing view...`;
-                
                 const expectedFile = `Pan76_tube_map_${match.chrom}.json.gz`;
                 const chromSelect = document.getElementById('chromSelect');
-                
                 if (chromSelect.value !== expectedFile) {
                     chromSelect.value = expectedFile;
                     pendingJump = { start: match.start, end: match.end, gene: match.name };
@@ -299,13 +265,8 @@
         const end = parseInt(document.getElementById('jumpEnd').value);
         const chromSelect = document.getElementById('chromSelect');
         const chromText = chromSelect.options[chromSelect.selectedIndex].text;
-
         if(start && !isNaN(start)) {
-            updateURLParams({ 
-                chrom: chromText !== "-- Select --" ? chromText : "", 
-                start: start, 
-                end: end || "" 
-            });
+            updateURLParams({ chrom: chromText !== "-- Select --" ? chromText : "", start: start, end: end || "" });
             executeJump(start, end);
         }
     }
@@ -316,10 +277,7 @@
         if (targetIdx === -1) targetIdx = globalData.columns.length - 1;
 
         const targetX = targetIdx * colWidth;
-        svg.transition().duration(1000).call(
-            zoom.transform,
-            d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1)
-        );
+        svg.transition().duration(1000).call(zoom.transform, d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1));
         statusDiv.style.color = "#00ffcc";
         statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
     }
@@ -340,54 +298,77 @@
         const cols = d3.group(globalData.segments, d => d.col);
         const incomingMap = d3.group(globalData.transitions, d => d.target);
 
-        // Pre-calculate exact pipe thicknesses globally so connectors can snap to them precisely
-        // EXAGGERATED SCALING: from 10px all the way up to 100px thick
-        const minThickness = 10; 
-        const maxThickness = 100; 
-        const totalSamples = globalData.samples.length;
+        // 1. PRE-CALCULATE EXAGGERATED THICKNESS
+        const minThickness = 6; 
+        const thicknessMultiplier = 4; // Pipe size absolutely explodes with more genomes
+        const pipeGap = 15; // Vertical space between packed pipes
 
         globalData.segments.forEach(d => {
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            // Linear scaling of thickness based on genome count
-            d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
+            d.base_t = minThickness + (d.samples.length - 1) * thicknessMultiplier; 
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             d.inner_t = 2.5; 
+            nodeMap.set(d.id, d);
         });
 
+        // 2. DYNAMIC GRAPH PLACEMENT (Center-of-Mass Alignment)
         globalData.columns.forEach((colInfo, visualIndex) => {
             let segsInCol = cols.get(colInfo.col) || [];
             
-            if (visualIndex > 0) {
+            if (visualIndex === 0) {
+                // First column: Just sort by size
+                segsInCol.sort((a, b) => b.samples.length - a.samples.length);
+            } else {
+                // Calculate ideal Y target for each node based on where its incoming edges are
                 segsInCol.forEach(n => {
                     const incoming = incomingMap.get(n.id) || [];
-                    if (incoming.length > 0) {
-                        let sumY = 0, totalWeight = 0;
-                        incoming.forEach(t => {
-                            const sourceNode = nodeMap.get(t.source);
-                            if (sourceNode) {
-                                sumY += sourceNode.y * t.samples.length;
-                                totalWeight += t.samples.length;
-                            }
-                        });
-                        n.barycenter = totalWeight > 0 ? sumY / totalWeight : 0;
-                    } else { n.barycenter = 0; }
+                    let sumY = 0, weight = 0;
+                    incoming.forEach(t => {
+                        const sourceNode = nodeMap.get(t.source);
+                        if (sourceNode) {
+                            sumY += sourceNode.y * t.samples.length;
+                            weight += t.samples.length;
+                        }
+                    });
+                    n.idealY = weight > 0 ? sumY / weight : 0;
                 });
-                segsInCol.sort((a, b) => a.barycenter - b.barycenter);
-            } else {
-                segsInCol.sort((a, b) => b.samples.length - a.samples.length);
+                // Sort by ideal placement to minimize crossing
+                segsInCol.sort((a, b) => a.idealY - b.idealY);
             }
 
+            // Pack them perfectly without overlaps
+            let currentY = 0;
+            segsInCol.forEach(n => {
+                n.y = currentY + (n.base_t / 2);
+                currentY += n.base_t + pipeGap;
+            });
+
+            // Shift entire column block to align perfectly with the previous column
+            if (visualIndex === 0) {
+                let shift = currentY / 2;
+                segsInCol.forEach(n => n.y -= shift);
+            } else {
+                let sumActual = 0, sumIdeal = 0, totalWeight = 0;
+                segsInCol.forEach(n => {
+                    let w = n.samples.length;
+                    sumActual += n.y * w;
+                    sumIdeal += (n.idealY !== undefined ? n.idealY : 0) * w;
+                    totalWeight += w;
+                });
+                // Align center of mass
+                let shift = totalWeight > 0 ? (sumActual / totalWeight) - (sumIdeal / totalWeight) : currentY / 2;
+                segsInCol.forEach(n => n.y -= shift);
+            }
+
+            // Assign X coordinates
             const colCenterX = visualIndex * colWidth;
-            segsInCol.forEach((n, i) => {
+            segsInCol.forEach(n => {
                 n.x1 = colCenterX - railWidth/2;
                 n.x2 = colCenterX + railWidth/2;
-                n.y = (i - (segsInCol.length-1)/2) * 50; // Increased Y spacing slightly for bigger pipes
-                nodeMap.set(n.id, n);
             });
         });
-        globalData.nodeMap = nodeMap;
         renderVisibleChunk();
     }
 
@@ -428,8 +409,8 @@
 
         let localMinY = 0, localMaxY = 0;
         if (viewSegs.length > 0) {
-            localMinY = d3.min(viewSegs, d => d.y);
-            localMaxY = d3.max(viewSegs, d => d.y);
+            localMinY = d3.min(viewSegs, d => d.y - d.base_t/2);
+            localMaxY = d3.max(viewSegs, d => d.y + d.base_t/2);
         }
         
         const annoTextTopY = localMinY - 110;  
@@ -437,7 +418,7 @@
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
 
-        // 1. Rulers & Gene Annotations
+        // Rulers & Gene Annotations
         viewCols.forEach(colInfo => {
             const visualIdx = globalData.columns.indexOf(colInfo);
             const colCenterX = visualIdx * colWidth;
@@ -492,15 +473,13 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Tapered Ribbon Transitions (Background Connectors)
+        // Ribbon Transitions
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
-        
         transitionGroup.append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
                 
-                // Poly-ribbon connecting the top and bottom edges of both pipes dynamically
                 const cpOffset = (tgt.x1 - src.x2) / 2;
                 const sTop = src.y - src.base_t / 2;
                 const sBot = src.y + src.base_t / 2;
@@ -528,11 +507,11 @@
                 hideTooltip();
             });
 
-        // 3. Render The Hash Pipes (Segments)
+        // Render Pipes
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
-                d3.select(this).select(".base-pipe").style("fill", "#4a4a4a"); // Highlight filled rect
+                d3.select(this).select(".base-pipe").style("fill", "#4a4a4a"); 
                 
                 let tip = `<div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
@@ -551,30 +530,28 @@
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).select(".base-pipe").style("fill", "#1e1e24"); // Reset filled rect
+                d3.select(this).select(".base-pipe").style("fill", "#1e1e24"); 
                 hideTooltip();
             });
 
-        // A. Draw dynamic background pipe using <rect> for PERFECT square edges!
+        // Perfect Square Rectangles
         rails.append("rect").attr("class", "base-pipe")
             .attr("x", d => d.x1)
             .attr("width", d => d.x2 - d.x1)
             .attr("y", d => d.y - d.base_t / 2)
-            .attr("height", d => d.base_t); // NO rounded corners (rx, ry removed)
+            .attr("height", d => d.base_t);
 
-        // B. Draw inner wires at fixed width (2.5px), safely offset from center
+        // Inner Wires
         rails.each(function(d) {
             const group = d3.select(this);
-            const insetX1 = d.x1; // Full edge-to-edge
-            const insetX2 = d.x2; // Full edge-to-edge
+            const insetX1 = d.x1; 
+            const insetX2 = d.x2;
 
             if (d.is_mixed) {
-                const offset = 4; // Fixed 4px offset so they are consistently side-by-side
-                // Forward (Solid)
+                const offset = 4;
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y - offset).attr("y2", d.y - offset)
                      .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-linecap", "round").style("pointer-events", "none");
-                // Reverse (Dashed)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y + offset).attr("y2", d.y + offset)
                      .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-dasharray", "4,4").style("stroke-linecap", "round").style("pointer-events", "none");
@@ -600,15 +577,16 @@
         hlLayer.selectAll("*").remove();
 
         selected.forEach((sample, idx) => {
-            const stackOffset = (idx - (selected.length - 1) / 2) * 3; 
+            // Keep stack offsets tight to stay inside the pipe
+            const stackOffset = (idx - (selected.length - 1) / 2) * 3.5; 
             const color = colorScale(sample);
 
             hlLayer.selectAll(`.hl-r-${idx}`).data(window.activeSegs.filter(s => s.samples.includes(sample))).enter().append("line")
-                   .attr("x1", d => d.x1).attr("x2", d => d.x2) // Full edge-to-edge to perfectly touch ribbons
+                   .attr("x1", d => d.x1).attr("x2", d => d.x2) 
                    .attr("y1", d => {
                        if (!d.is_mixed) return d.y + stackOffset;
                        const sampleStrand = d.strands ? d.strands[sample] : "+";
-                       const offset = 4; // Matches the fixed offset used when drawing
+                       const offset = 4;
                        return sampleStrand === "-" ? (d.y + offset + stackOffset) : (d.y - offset + stackOffset);
                    })
                    .attr("y2", d => {
@@ -620,7 +598,6 @@
                    .style("stroke", color).style("stroke-width", 2.5).style("pointer-events", "none")
                    .style("stroke-dasharray", d => (d.strands && d.strands[sample] === "-") ? "4,4" : "none");
 
-            // Highlight Transitions (Solid ONLY!)
             hlLayer.selectAll(`.hl-t-${idx}`).data(window.activeTrans.filter(t => t.samples.includes(sample))).enter().append("path")
                    .attr("d", d => {
                        const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
