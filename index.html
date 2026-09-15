@@ -36,11 +36,12 @@
         .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
-        /* Base Tracks & Connectors */
+        /* Connectors and Pipes */
         .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
         .transition-ribbon:hover { fill: #3a3a44; }
+        .base-pipe { fill: #1e1e24; transition: fill 0.2s; }
         
-        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 350px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
+        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 400px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
         
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
@@ -88,7 +89,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v1.9 (Pipe & Wire UI)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.0 (Dynamic Rect Pipes)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -339,7 +340,7 @@
         const cols = d3.group(globalData.segments, d => d.col);
         const incomingMap = d3.group(globalData.transitions, d => d.target);
 
-        // Pre-calculate ALL dynamic sizes here globally so off-screen connectors can perfectly scale
+        // Pre-calculate exact pipe thicknesses globally so connectors can snap to them precisely
         const minThickness = 14; 
         const maxThickness = 60; 
         const totalSamples = globalData.samples.length;
@@ -348,7 +349,7 @@
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            // This ensures dynamic sizing applies instantly everywhere
+            // Linear scaling of thickness based on genome count
             d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             d.inner_t = 2.5; 
@@ -490,7 +491,7 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Tapered Ribbon Transitions (Background Connectors - NO inner wires)
+        // 2. Tapered Ribbon Transitions (Background Connectors)
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
         
         transitionGroup.append("path").attr("class", "transition-ribbon")
@@ -512,7 +513,13 @@
             })
             .on("mouseover", function(e, d) {
                 d3.select(this).style("fill", "#3a3a44");
-                tooltip.style("display", "block").html(`<strong>Hash Transition</strong><br><strong>${d.samples.length} Samples</strong><br><br><span style="color:#aaa;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>`);
+                const tgtNode = globalData.nodeMap.get(d.target);
+                const tgtHash = tgtNode ? (tgtNode.hash ? tgtNode.hash : 'Split/Merge') : 'Unknown';
+                tooltip.style("display", "block").html(`
+                    <div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
+                    <strong>Total samples: ${d.samples.length}</strong><br><br>
+                    <span style="color:#aaa;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
+                `);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
@@ -524,10 +531,9 @@
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
-                d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); 
+                d3.select(this).select(".base-pipe").style("fill", "#4a4a4a"); // Highlight filled rect
                 
-                // Formatted Tooltip with Genome Lists exactly as requested
-                let tip = `<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>`;
+                let tip = `<div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
                 if (d.pos_samps.length > 0) {
@@ -544,15 +550,18 @@
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).select(".base-pipe").style("stroke", "#1e1e24"); 
+                d3.select(this).select(".base-pipe").style("fill", "#1e1e24"); // Reset filled rect
                 hideTooltip();
             });
 
-        // A. Draw dynamic background pipe
-        rails.append("line").attr("class", "base-pipe")
-            .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
-            .style("stroke-width", d => d.base_t)
-            .style("stroke", "#1e1e24").style("stroke-linecap", "round").style("transition", "stroke 0.2s");
+        // A. Draw dynamic background pipe using <rect> so it scales identically to the polygon ribbons!
+        rails.append("rect").attr("class", "base-pipe")
+            .attr("x", d => d.x1)
+            .attr("width", d => d.x2 - d.x1)
+            .attr("y", d => d.y - d.base_t / 2)
+            .attr("height", d => d.base_t)
+            .attr("rx", d => Math.min(6, d.base_t / 2)) // Rounded corners based on height
+            .attr("ry", d => Math.min(6, d.base_t / 2));
 
         // B. Draw inner wires at fixed width (2.5px), safely offset from center
         rails.each(function(d) {
