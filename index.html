@@ -24,8 +24,10 @@
             --fwd-color: #1b5e20;
             --rev-color: #b71c1c;
             
-            --pipe-fill: #eaedf2;
-            --pipe-hover: #d1d5db;
+            /* Darker pipes for light mode */
+            --pipe-fill: #d1d5db; 
+            --pipe-hover: #9ca3af;
+            
             --tooltip-bg: rgba(255, 255, 255, 0.98);
             --tooltip-border: #cccccc;
             --tooltip-text: #222222;
@@ -50,8 +52,10 @@
             --fwd-color: #4CAF50;
             --rev-color: #FF5252;
             
-            --pipe-fill: #1e1e24;
-            --pipe-hover: #3a3a44;
+            /* Lighter pipes for dark mode */
+            --pipe-fill: #2d3748; 
+            --pipe-hover: #4a5568;
+            
             --tooltip-bg: rgba(0, 0, 0, 0.95);
             --tooltip-border: #444444;
             --tooltip-text: #ffffff;
@@ -144,7 +148,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.6 (Theme Toggle & No Borders)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.7 (Contrast Fix & Escaped Hashes)</div>
 
 <script>
     function toggleTheme() {
@@ -577,7 +581,6 @@
         // Ribbon Transitions
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
         
-        // Fill Shape (No borders!)
         transitionGroup.append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
@@ -592,9 +595,12 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).style("fill", "var(--pipe-hover)");
                 const tgtNode = globalData.nodeMap.get(d.target);
-                const tgtHash = tgtNode ? (tgtNode.hash ? tgtNode.hash : 'Split/Merge') : 'Unknown';
+                
+                // ESCAPING HASH TEXT SO THE BROWSER DOESN'T HIDE IT!
+                const safeTgtHash = (tgtNode && tgtNode.hash) ? tgtNode.hash.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Split/Merge';
+                
                 tooltip.style("display", "block").html(`
-                    <div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
+                    <div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${safeTgtHash}</strong></div>
                     <strong>Total samples: ${d.samples.length}</strong><br><br>
                     <span style="color:var(--dim-text);">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
                 `);
@@ -611,7 +617,10 @@
             .on("mouseover", function(e, d) {
                 d3.select(this).select(".base-pipe").style("fill", "var(--pipe-hover)"); 
                 
-                let tip = `<div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
+                // ESCAPING HASH TEXT SO THE BROWSER DOESN'T HIDE IT!
+                const safeHash = d.hash ? d.hash.replace(/</g, "&lt;").replace(/>/g, "&gt;") : 'Split/Merge';
+                
+                let tip = `<div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>${safeHash}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
                 if (d.pos_samps.length > 0) {
