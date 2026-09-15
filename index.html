@@ -5,8 +5,8 @@
     <title>Barley Pangenome Rail Map</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body { font-family: sans-serif; margin: 0; background: #121212; color: #fff; overflow: hidden; }
-        #toolbar { background: #1e1e1e; border-bottom: 1px solid #333; z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; }
+        body { font-family: sans-serif; margin: 0; background: #f4f6f8; color: #222; overflow: hidden; }
+        #toolbar { background: #ffffff; border-bottom: 1px solid #ddd; z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); }
         .row { display: flex; gap: 15px; align-items: center; }
         
         #viewer { 
@@ -17,33 +17,35 @@
         }
         #viewer:active { cursor: grabbing; }
         
-        select, input[type="number"], input[type="text"] { background: #333; color: white; border: 1px solid #555; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
+        select, input[type="number"], input[type="text"] { background: #fff; color: #222; border: 1px solid #bbb; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
         select[multiple] { height: 40px; width: 150px; }
         input[type="number"] { width: 120px; font-family: monospace; }
         input[type="text"] { width: 160px; font-family: monospace; }
         button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; }
         button:hover { background: #2980b9; }
         
-        #status { font-family: monospace; font-size: 13px; padding: 5px 10px; border-radius: 4px; background: #000; font-weight: bold;}
-        .info-text { font-size: 13px; color: #aaa; }
+        #status { font-family: monospace; font-size: 13px; padding: 5px 10px; border-radius: 4px; background: #e2e8f0; color: #333; font-weight: bold;}
+        .info-text { font-size: 13px; color: #666; }
         
-        .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
-        .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
+        .ruler-line { stroke: #ccc; stroke-width: 1px; stroke-dasharray: 4,4; }
+        .ruler-text { fill: #d35400; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
         /* Annotations */
-        .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
-        .anno-text:hover { fill: #ffffff; text-decoration: underline; }
-        .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
-        .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
+        .anno-text { fill: #006b5b; font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
+        .anno-text:hover { fill: #004d40; text-decoration: underline; }
+        .panbart-text { fill: #c2185b; font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
+        .panbart-text:hover { fill: #880e4f; text-decoration: underline; }
         
         /* Connectors and Pipes */
-        .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
-        .transition-ribbon:hover { fill: #3a3a44; }
-        .base-pipe { fill: #1e1e24; transition: fill 0.2s; }
+        .transition-ribbon { fill: #eaedf2; cursor: pointer; transition: fill 0.2s; }
+        .transition-ribbon:hover { fill: #d1d5db; }
+        .base-pipe { fill: #eaedf2; transition: fill 0.2s; }
         
-        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 400px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
+        .tube-border { fill: none; stroke: #000; stroke-width: 1.5px; pointer-events: none; }
         
-        #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
+        #tooltip { position: absolute; background: rgba(255, 255, 255, 0.98); padding: 12px; border-radius: 8px; border: 1px solid #ccc; color: #222; font-size: 13px; max-width: 400px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 20px rgba(0,0,0,0.15); line-height: 1.4; }
+        
+        #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(255,255,255,0.9); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #555; border: 1px solid #ccc; z-index: 1000; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -64,7 +66,7 @@
             <option value="Pan76_tube_map_chr7H.json.gz">chr7H</option>
         </select>
         
-        <div id="status" style="color:#aaa;">Initializing...</div>
+        <div id="status" style="color:#666;">Initializing...</div>
         
         <label style="margin-left:auto;">Highlight Genomes:</label>
         <select id="samplePicker" multiple></select>
@@ -78,7 +80,7 @@
             <button onclick="searchGene()">Find</button>
         </div>
 
-        <div style="margin-left:15px; border-left: 1px solid #555; padding-left: 15px; display:flex; gap: 10px; align-items:center;">
+        <div style="margin-left:15px; border-left: 1px solid #ddd; padding-left: 15px; display:flex; gap: 10px; align-items:center;">
             <label class="info-text">Jump Coord:</label>
             <input type="number" id="jumpStart" placeholder="Start Base">
             <input type="number" id="jumpEnd" placeholder="End Base (Opt)">
@@ -89,7 +91,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.4 (Async UI Progress)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.5 (Light Theme & Tube Outlines)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -172,7 +174,7 @@
                 });
             } catch (err) {}
         }
-        statusDiv.style.color = "#2ecc71";
+        statusDiv.style.color = "#1b5e20";
         statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
         checkUrlOnLoad();
     }
@@ -191,7 +193,7 @@
         const fileUrl = e.target.value;
         if (!fileUrl) return;
         
-        statusDiv.style.color = "#f39c12";
+        statusDiv.style.color = "#d35400";
         statusDiv.innerText = `Downloading data...`;
 
         const loadStartTime = performance.now();
@@ -209,7 +211,6 @@
                 sampSelect.selectAll("option").remove();
                 sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
 
-                // Run the layout calculation asynchronously so it updates the UI!
                 computeChromosomeLayout(loadStartTime).then(() => {
                     if (pendingJump) {
                         executeJump(pendingJump.start, pendingJump.end, pendingJump.gene);
@@ -246,9 +247,9 @@
     }
 
     function showError(msg) {
-        statusDiv.style.color = "#e74c3c";
+        statusDiv.style.color = "#c62828";
         statusDiv.innerText = msg;
-        setTimeout(() => { statusDiv.style.color = "#aaa"; statusDiv.innerText = "Ready."; }, 4000);
+        setTimeout(() => { statusDiv.style.color = "#666"; statusDiv.innerText = "Ready."; }, 4000);
     }
 
     document.getElementById("geneSearch").addEventListener("keypress", function(event) {
@@ -275,7 +276,7 @@
 
         const targetX = targetIdx * colWidth;
         svg.transition().duration(1000).call(zoom.transform, d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1));
-        statusDiv.style.color = "#00ffcc";
+        statusDiv.style.color = "#00796b";
         statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
     }
     
@@ -287,7 +288,6 @@
     let lastRenderStart = -1;
     let lastRenderEnd = -1;
 
-    // Converted to async function to allow UI updates during calculation
     async function computeChromosomeLayout(loadStartTime) {
         lastRenderStart = -1;
         lastRenderEnd = -1;
@@ -299,10 +299,9 @@
         const minThickness = 6; 
         const pipeGap = 15; 
 
-        statusDiv.style.color = "#f39c12";
+        statusDiv.style.color = "#d35400";
         statusDiv.innerText = "Indexing thickness mappings...";
 
-        // Yield execution to repaint "Indexing" status
         await new Promise(r => setTimeout(r, 10));
 
         globalData.segments.forEach(d => {
@@ -315,9 +314,8 @@
         });
 
         let prevBackboneY = 0; 
-        
         const totalCols = globalData.columns.length;
-        const chunkSize = 500; // Process chunks of 500 columns before updating the UI
+        const chunkSize = 500; 
         const calcStartTime = performance.now();
 
         for (let i = 0; i < totalCols; i += chunkSize) {
@@ -378,7 +376,6 @@
 
                     const shift = heaviestNode.y - targetY;
                     segsInCol.forEach(n => n.y -= shift);
-
                     prevBackboneY = heaviestNode.y;
                 }
 
@@ -389,7 +386,6 @@
                 });
             });
 
-            // UI PROGRESS UPDATE
             const colsDone = i + chunk.length;
             const progress = Math.min(100, Math.round((colsDone / totalCols) * 100));
             const elapsed = (performance.now() - calcStartTime) / 1000;
@@ -398,10 +394,9 @@
             let eta = remainingCols / colsPerSec;
             if (!isFinite(eta) || eta < 0) eta = 0;
 
-            statusDiv.style.color = "#3498db";
+            statusDiv.style.color = "#2980b9";
             statusDiv.innerText = `Calculating Layout: ${progress}% (ETA: ${eta.toFixed(1)}s)`;
             
-            // Pauses Javascript thread for 1 millisecond, allowing Browser to paint the text update!
             await new Promise(r => setTimeout(r, 1));
         }
 
@@ -409,7 +404,7 @@
         renderVisibleChunk();
         
         const totalTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
-        statusDiv.style.color = "#2ecc71";
+        statusDiv.style.color = "#1b5e20";
         statusDiv.innerText = `Success: Placed ${totalCols} blocks in ${totalTime}s`;
     }
 
@@ -485,7 +480,7 @@
                     g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
                      .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', ') + strandArrow)
                      .on("mouseover", (e) => {
-                         tooltip.style("display", "block").html(`<div style='color:#00ffcc; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:#888;">Strand: ${colInfo.strand || '?'}</span>`);
+                         tooltip.style("display", "block").html(`<div style='color:#00796b; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:#555;">Strand: ${colInfo.strand || '?'}</span>`);
                      })
                      .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                      .on("click", () => {
@@ -509,78 +504,105 @@
             g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", annoTextTopY - 25)
                 .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`).text(gene.name)
                 .on("mouseover", () => {
-                    tooltip.style("display", "block").html(`<div style="color:#ff66cc; margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
+                    tooltip.style("display", "block").html(`<div style="color:#c2185b; margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
                 }).on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
         // Ribbon Transitions
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
+        
+        // Fill Shape
         transitionGroup.append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
-                
                 const cpOffset = (tgt.x1 - src.x2) / 2;
                 const sTop = src.y - src.base_t / 2;
                 const sBot = src.y + src.base_t / 2;
                 const tTop = tgt.y - tgt.base_t / 2;
                 const tBot = tgt.y + tgt.base_t / 2;
-                
-                return `M ${src.x2},${sTop} 
-                        C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop} 
-                        L ${tgt.x1},${tBot} 
-                        C ${tgt.x1 - cpOffset},${tBot} ${src.x2 + cpOffset},${sBot} ${src.x2},${sBot} Z`;
+                return `M ${src.x2},${sTop} C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop} L ${tgt.x1},${tBot} C ${tgt.x1 - cpOffset},${tBot} ${src.x2 + cpOffset},${sBot} ${src.x2},${sBot} Z`;
             })
             .on("mouseover", function(e, d) {
-                d3.select(this).style("fill", "#3a3a44");
+                d3.select(this).style("fill", "#d1d5db");
                 const tgtNode = globalData.nodeMap.get(d.target);
                 const tgtHash = tgtNode ? (tgtNode.hash ? tgtNode.hash : 'Split/Merge') : 'Unknown';
                 tooltip.style("display", "block").html(`
-                    <div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
+                    <div style="font-family:monospace; color:#00796b; margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
                     <strong>Total samples: ${d.samples.length}</strong><br><br>
-                    <span style="color:#aaa;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
+                    <span style="color:#555;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
                 `);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).style("fill", "#1e1e24");
+                d3.select(this).style("fill", "#eaedf2");
                 hideTooltip();
+            });
+
+        // Ribbon Top Border
+        transitionGroup.append("path").attr("class", "tube-border")
+            .attr("d", d => {
+                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
+                if(!src || !tgt) return "";
+                const cpOffset = (tgt.x1 - src.x2) / 2;
+                const sTop = src.y - src.base_t / 2;
+                const tTop = tgt.y - tgt.base_t / 2;
+                return `M ${src.x2},${sTop} C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop}`;
+            });
+
+        // Ribbon Bottom Border
+        transitionGroup.append("path").attr("class", "tube-border")
+            .attr("d", d => {
+                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
+                if(!src || !tgt) return "";
+                const cpOffset = (tgt.x1 - src.x2) / 2;
+                const sBot = src.y + src.base_t / 2;
+                const tBot = tgt.y + tgt.base_t / 2;
+                return `M ${src.x2},${sBot} C ${src.x2 + cpOffset},${sBot} ${tgt.x1 - cpOffset},${tBot} ${tgt.x1},${tBot}`;
             });
 
         // Render Pipes
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
-                d3.select(this).select(".base-pipe").style("fill", "#4a4a4a"); 
+                d3.select(this).select(".base-pipe").style("fill", "#d1d5db"); 
                 
-                let tip = `<div style="font-family:monospace; color:#00ffcc; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
+                let tip = `<div style="font-family:monospace; color:#00796b; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
                 if (d.pos_samps.length > 0) {
-                    tip += `<span style="color:#4CAF50;">Forward strand (+) = ${d.pos_samps.length}</span><br>`;
-                    tip += `<span style="font-size:12px; color:#aaa;">${d.pos_samps.slice(0, 25).join(', ')}${d.pos_samps.length > 25 ? '...' : ''}</span><br><br>`;
+                    tip += `<span style="color:#1b5e20;">Forward strand (+) = ${d.pos_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:#555;">${d.pos_samps.slice(0, 25).join(', ')}${d.pos_samps.length > 25 ? '...' : ''}</span><br><br>`;
                 }
                 
                 if (d.neg_samps.length > 0) {
-                    tip += `<span style="color:#FF5252;">Reverse strand (-) = ${d.neg_samps.length}</span><br>`;
-                    tip += `<span style="font-size:12px; color:#aaa;">${d.neg_samps.slice(0, 25).join(', ')}${d.neg_samps.length > 25 ? '...' : ''}</span><br>`;
+                    tip += `<span style="color:#b71c1c;">Reverse strand (-) = ${d.neg_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:#555;">${d.neg_samps.slice(0, 25).join(', ')}${d.neg_samps.length > 25 ? '...' : ''}</span><br>`;
                 }
                 
                 tooltip.style("display", "block").html(tip);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).select(".base-pipe").style("fill", "#1e1e24"); 
+                d3.select(this).select(".base-pipe").style("fill", "#eaedf2"); 
                 hideTooltip();
             });
 
-        // Perfect Square Rectangles
+        // Pipe Background Fill
         rails.append("rect").attr("class", "base-pipe")
-            .attr("x", d => d.x1)
-            .attr("width", d => d.x2 - d.x1)
-            .attr("y", d => d.y - d.base_t / 2)
-            .attr("height", d => d.base_t);
+            .attr("x", d => d.x1).attr("width", d => d.x2 - d.x1)
+            .attr("y", d => d.y - d.base_t / 2).attr("height", d => d.base_t);
+
+        // Pipe Top Border
+        rails.append("line").attr("class", "tube-border")
+            .attr("x1", d => d.x1).attr("x2", d => d.x2)
+            .attr("y1", d => d.y - d.base_t / 2).attr("y2", d => d.y - d.base_t / 2);
+
+        // Pipe Bottom Border
+        rails.append("line").attr("class", "tube-border")
+            .attr("x1", d => d.x1).attr("x2", d => d.x2)
+            .attr("y1", d => d.y + d.base_t / 2).attr("y2", d => d.y + d.base_t / 2);
 
         // Inner Wires
         rails.each(function(d) {
