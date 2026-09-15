@@ -13,7 +13,6 @@
             width: 100vw; 
             height: calc(100vh - 100px); 
             cursor: grab; 
-            /* Force hardware acceleration on the container only */
             transform: translateZ(0); 
         }
         #viewer:active { cursor: grabbing; }
@@ -31,18 +30,17 @@
         .ruler-line { stroke: #555; stroke-width: 1px; stroke-dasharray: 4,4; }
         .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
-        /* PGSB Gene Style */
+        /* Annotations */
         .anno-text { fill: #00ffcc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .anno-text:hover { fill: #ffffff; text-decoration: underline; }
-        
-        /* PanBaRT Gene Style */
         .panbart-text { fill: #ff66cc; font-size: 14px; text-anchor: middle; font-weight: bold; text-shadow: 1px 1px 2px #000; cursor: pointer; transition: fill 0.2s; }
         .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
-        .base-track { fill: none; stroke: #444; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
-        .base-track:hover { stroke: #999; }
+        /* Base Tracks & Pipes */
+        .base-track { fill: none; stroke: #333; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
+        .base-track:hover { stroke: #666; }
         
-        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 10px; border-radius: 5px; border: 1px solid #555; font-size: 12px; max-width: 300px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 4px 6px rgba(0,0,0,0.5); }
+        #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 320px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); }
         
         #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(0,0,0,0.8); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #888; border: 1px solid #333; z-index: 1000; pointer-events: none; }
     </style>
@@ -90,7 +88,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v1.8 (Strand Direction)</div>
+<div id="version-tag">Build: 2026-09-15 | v1.9 (Pipe & Wire UI)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -195,8 +193,6 @@
         }
         statusDiv.style.color = "#2ecc71";
         statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
-        
-        // Trigger Deep Linking Check once DB is loaded
         checkUrlOnLoad();
     }
 
@@ -268,7 +264,7 @@
                 statusDiv.style.color = "#00ffcc";
                 statusDiv.innerText = `Found ${match.name} on ${match.chrom}. Preparing view...`;
                 
-                const expectedFile = `Pan76_tube_map.json_${match.chrom}.json.gz`;
+                const expectedFile = `Pan76_tube_map_${match.chrom}.json.gz`;
                 const chromSelect = document.getElementById('chromSelect');
                 
                 if (chromSelect.value !== expectedFile) {
@@ -279,16 +275,7 @@
                     executeJump(match.start, match.end, match.name);
                 }
             } else {
-                showError(`Gene '${queryInput}' not found in global database.`);
-            }
-        } else if (globalData) {
-            const targetIdx = globalData.columns.findIndex(c => c.anno && c.anno.toLowerCase().includes(query));
-            if (targetIdx !== -1) {
-                updateURLParams({ gene: queryInput });
-                const targetCol = globalData.columns[targetIdx];
-                executeJump(targetCol.start, targetCol.end, queryInput);
-            } else {
-                showError(`Gene '${queryInput}' not found on this chromosome.`);
+                showError(`Gene '${queryInput}' not found in database.`);
             }
         }
     }
@@ -323,33 +310,27 @@
 
     function executeJump(start, end, geneName = null) {
         if(!globalData) return;
-        
         let targetIdx = globalData.columns.findIndex(c => c.start >= start);
         if (targetIdx === -1) targetIdx = globalData.columns.length - 1;
 
         const targetX = targetIdx * colWidth;
-        
         svg.transition().duration(1000).call(
             zoom.transform,
             d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1)
         );
-        
         statusDiv.style.color = "#00ffcc";
         statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
     }
     
-    // UTILITY: Find column index for a given gene coordinate
     function findColumnForAnnotation(gene) {
         if (!globalData || !globalData.columns) return -1;
         return globalData.columns.findIndex(c => gene.start >= parseInt(c.start) && gene.start <= parseInt(c.end));
     }
 
-    // GLOBALS FOR RENDERING
     let lastRenderStart = -1;
     let lastRenderEnd = -1;
 
     function computeChromosomeLayout() {
-        // RESET BUFFERS ON NEW CHROMOSOME LOAD
         lastRenderStart = -1;
         lastRenderEnd = -1;
         
@@ -398,19 +379,14 @@
         const minX = -currentTransform.x / currentTransform.k;
         const maxX = (width - currentTransform.x) / currentTransform.k;
         
-        // Calculate the columns currently visible on the user's screen
         const currentViewStart = Math.floor(minX / colWidth);
         const currentViewEnd = Math.ceil(maxX / colWidth);
 
-        // BUFFER CHECK: Safely check if we are within the buffer, accounting for absolute edges
         const safeLeft = (lastRenderStart === 0) || (currentViewStart > lastRenderStart + 5);
         const safeRight = (lastRenderEnd === globalData.columns.length - 1) || (currentViewEnd < lastRenderEnd - 5);
 
-        if (lastRenderStart !== -1 && safeLeft && safeRight) {
-            return; 
-        }
+        if (lastRenderStart !== -1 && safeLeft && safeRight) return; 
 
-        // We reached the edge of the buffer! Render 40 extra columns off-screen
         const buffer = 40; 
         const startVisIdx = Math.max(0, currentViewStart - buffer);
         const endVisIdx = Math.min(globalData.columns.length - 1, currentViewEnd + buffer);
@@ -442,9 +418,24 @@
         const rulerTextTopY = localMinY - 60;  
         const rulerLineTopY = localMinY - 40;  
         const rulerLineBotY = localMaxY + 40;
-        const maxThickness = 25;
+        
+        const maxThickness = 28;
         const totalSamples = globalData.samples.length;
 
+        // PRE-CALCULATE STRAND DATA FOR PIPES
+        viewSegs.forEach(d => {
+            d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
+            d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
+            
+            // Base pipe thickness: thick enough to hold two lines if needed, min 10px
+            d.base_t = Math.max(10, (d.samples.length / totalSamples) * maxThickness);
+            d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
+            
+            // Inner wire thickness is proportional to the pipe
+            d.inner_t = Math.max(2, d.base_t * 0.35); 
+        });
+
+        // 1. Rulers & Gene Annotations
         viewCols.forEach(colInfo => {
             const visualIdx = globalData.columns.indexOf(colInfo);
             const colCenterX = visualIdx * colWidth;
@@ -463,8 +454,6 @@
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
                 if (validAnnos.length > 0) {
-                    
-                    // Determine strand arrow for column
                     let strandArrow = "";
                     if (colInfo.strand === "+") strandArrow = " →";
                     if (colInfo.strand === "-") strandArrow = " ←";
@@ -474,81 +463,34 @@
                      .on("mouseover", (e) => {
                          tooltip.style("display", "block").html(`<div style='color:#00ffcc; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:#888;">Strand: ${colInfo.strand || '?'}</span>`);
                      })
-                     .on("mousemove", moveTooltip)
-                     .on("mouseout", hideTooltip)
+                     .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                      .on("click", () => {
-                         validAnnos.forEach(gene => {
-                             window.open(`https://plants.ensembl.org/Hordeum_vulgare/Gene/Summary?g=${gene}`, '_blank');
-                         });
+                         validAnnos.forEach(gene => { window.open(`https://plants.ensembl.org/Hordeum_vulgare/Gene/Summary?g=${gene}`, '_blank'); });
                      });
                 }
             }
         });
 
-        // --------------------------------------------------------
         // PanBaRT annotations
-        // --------------------------------------------------------
-        
         const currentChrom = globalData.columns[0].chrom;
         const viewStart = parseInt(viewCols[0].start);
         const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
         
-        const visiblePanBaRT = globalGeneIndex.filter(g => 
-            g.source === "PanBaRT" && 
-            g.chrom === currentChrom && 
-            g.start >= viewStart && 
-            g.start <= viewEnd
-        );
-
+        const visiblePanBaRT = globalGeneIndex.filter(g => g.source === "PanBaRT" && g.chrom === currentChrom && g.start >= viewStart && g.start <= viewEnd);
         visiblePanBaRT.forEach(gene => {
             const targetIdx = findColumnForAnnotation(gene);
             if (targetIdx === -1) return;
-
             const colCenterX = targetIdx * colWidth;
 
-            g.append("text")
-                .attr("class", "panbart-text")
-                .attr("x", colCenterX)
-                .attr("y", annoTextTopY - 25)
-                .attr(
-                    "transform",
-                    `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`
-                )
-                .text(gene.name)
+            g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", annoTextTopY - 25)
+                .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`).text(gene.name)
                 .on("mouseover", () => {
-                    tooltip
-                        .style("display", "block")
-                        .html(`
-                            <div style="color:#ff66cc; margin-bottom:5px;">
-                                <strong>PanBaRT gene</strong>
-                            </div>
-                            <strong>${gene.name}</strong><br>
-                            ${gene.graphChrom}:${gene.start}-${gene.end}<br>
-                            Strand: ${gene.strand || "?"}
-                        `);
-                })
-                .on("mousemove", moveTooltip)
-                .on("mouseout", hideTooltip)
-                .on("click", () => {
-                    executeJump(
-                        gene.start,
-                        gene.end,
-                        gene.name
-                    );
-                });
+                    tooltip.style("display", "block").html(`<div style="color:#ff66cc; margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
+                }).on("mousemove", moveTooltip).on("mouseout", hideTooltip)
+                .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // Render base tracks (Segments)
-        g.selectAll(".rail").data(viewSegs).enter().append("line").attr("class", "base-track")
-            .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
-            .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
-            .style("stroke-dasharray", d => d.strand === "-" ? "5,5" : "none") // NEW STRAND STYLE
-            .on("mouseover", (e, d) => {
-                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>Strand:</strong> ${d.strand || '?'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
-            })
-            .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
-
-        // Render transitions
+        // 2. Render Transitions FIRST (so they fall behind the pipes)
         g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "base-track")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
@@ -556,14 +498,71 @@
                 return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
             })
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
-            .style("stroke-dasharray", d => { // NEW STRAND STYLE (Inherits from source node)
+            .style("stroke-dasharray", d => { 
                 const src = globalData.nodeMap.get(d.source);
-                return (src && src.strand === "-") ? "5,5" : "none";
+                // Inherit dash only if the source pipe is strictly reverse majority
+                return (src && src.neg_samps.length > src.pos_samps.length) ? "5,5" : "none";
             })
             .on("mouseover", (e, d) => {
-                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
+                tooltip.style("display", "block").html(`<strong>Hash Transition</strong><br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
             })
             .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+
+        // 3. Render The Hash Pipes (Segments)
+        const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
+            .style("cursor", "pointer")
+            .on("mouseover", function(e, d) {
+                d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); // Highlight pipe background
+                tooltip.style("display", "block").html(`
+                    <strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>
+                    <strong>Total Samples:</strong> ${d.samples.length}<br>
+                    <span style="color:#4CAF50;">Forward (+): ${d.pos_samps.length}</span> | 
+                    <span style="color:#FF5252;">Reverse (-): ${d.neg_samps.length}</span><br>
+                    <br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}
+                `);
+            })
+            .on("mousemove", moveTooltip)
+            .on("mouseout", function() {
+                d3.select(this).select(".base-pipe").style("stroke", "#1e1e24"); // Reset pipe background
+                hideTooltip();
+            });
+
+        // A. Draw thick background pipe
+        rails.append("line").attr("class", "base-pipe")
+            .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
+            .style("stroke-width", d => d.base_t)
+            .style("stroke", "#1e1e24").style("stroke-linecap", "round").style("transition", "stroke 0.2s");
+
+        // B. Draw inner colored wires
+        rails.each(function(d) {
+            const group = d3.select(this);
+            const insetX1 = d.x1 + 4; // Keeps wires inside the rounded pipe ends
+            const insetX2 = d.x2 - 4;
+
+            if (d.is_mixed) {
+                // Pipe splits into two parallel wires
+                const offset = d.base_t * 0.22;
+                
+                // Top Wire (Forward, Green)
+                group.append("line").attr("class", "inner-wire")
+                     .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y - offset).attr("y2", d.y - offset)
+                     .style("stroke-width", d.inner_t).style("stroke", "#4CAF50").style("stroke-linecap", "round").style("pointer-events", "none");
+                
+                // Bottom Wire (Reverse, Red Dashed)
+                group.append("line").attr("class", "inner-wire")
+                     .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y + offset).attr("y2", d.y + offset)
+                     .style("stroke-width", d.inner_t).style("stroke", "#FF5252").style("stroke-dasharray", "4,4").style("stroke-linecap", "round").style("pointer-events", "none");
+            } else {
+                // Pipe contains a single centered wire
+                const isRev = d.neg_samps.length > 0;
+                const color = isRev ? "#FF5252" : (d.pos_samps.length > 0 ? "#4CAF50" : "#666");
+                const dash = isRev ? "5,5" : "none";
+                
+                group.append("line").attr("class", "inner-wire")
+                     .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y).attr("y2", d.y)
+                     .style("stroke-width", Math.max(2, d.base_t * 0.5)).style("stroke", color).style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
+            }
+        });
 
         window.activeSegs = viewSegs;
         window.activeTrans = viewTrans;
@@ -578,25 +577,39 @@
         hlLayer.selectAll("*").remove();
 
         selected.forEach((sample, idx) => {
-            const offset = (idx - (selected.length - 1) / 2) * 5; 
+            const stackOffset = (idx - (selected.length - 1) / 2) * 3; 
             const color = colorScale(sample);
 
+            // Highlight lines flowing through the specific inner wires
             hlLayer.selectAll(`.hl-r-${idx}`).data(window.activeSegs.filter(s => s.samples.includes(sample))).enter().append("line")
-                   .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y + offset).attr("y2", d => d.y + offset)
-                   .style("stroke", color).style("stroke-width", 3).style("pointer-events", "none")
-                   .style("stroke-dasharray", d => d.strand === "-" ? "5,5" : "none"); // NEW STRAND STYLE
+                   .attr("x1", d => d.x1 + 4).attr("x2", d => d.x2 - 4)
+                   .attr("y1", d => {
+                       if (!d.is_mixed) return d.y + stackOffset;
+                       const sampleStrand = d.strands ? d.strands[sample] : "+";
+                       const innerOffset = d.base_t * 0.22;
+                       return sampleStrand === "-" ? (d.y + innerOffset + stackOffset) : (d.y - innerOffset + stackOffset);
+                   })
+                   .attr("y2", d => {
+                       if (!d.is_mixed) return d.y + stackOffset;
+                       const sampleStrand = d.strands ? d.strands[sample] : "+";
+                       const innerOffset = d.base_t * 0.22;
+                       return sampleStrand === "-" ? (d.y + innerOffset + stackOffset) : (d.y - innerOffset + stackOffset);
+                   })
+                   .style("stroke", color).style("stroke-width", 2.5).style("pointer-events", "none")
+                   .style("stroke-dasharray", d => (d.strands && d.strands[sample] === "-") ? "4,4" : "none");
 
+            // Highlight Transitions
             hlLayer.selectAll(`.hl-t-${idx}`).data(window.activeTrans.filter(t => t.samples.includes(sample))).enter().append("path")
                    .attr("d", d => {
                        const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                        if(!src || !tgt) return "";
                        return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
                    })
-                   .attr("transform", `translate(0, ${offset})`)
-                   .style("stroke", color).style("stroke-width", 3).style("fill", "none").style("pointer-events", "none")
-                   .style("stroke-dasharray", d => { // NEW STRAND STYLE (Inherits from source node)
+                   .attr("transform", `translate(0, ${stackOffset})`)
+                   .style("stroke", color).style("stroke-width", 2.5).style("fill", "none").style("pointer-events", "none")
+                   .style("stroke-dasharray", d => { 
                        const src = globalData.nodeMap.get(d.source);
-                       return (src && src.strand === "-") ? "5,5" : "none";
+                       return (src && src.strands && src.strands[sample] === "-") ? "4,4" : "none";
                    });
         });
     }
