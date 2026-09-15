@@ -29,25 +29,32 @@ def main():
     out_prefix = sys.argv[3]
     bed_folder = sys.argv[4]
 
-    # 1. LOAD ALL STRAND DATA FROM PANGENOME BED FILES
+# 1. LOAD ALL STRAND DATA FROM PANGENOME BED FILES
     print(f"Scanning genome BED files in {bed_folder} for strand data...")
-    hash_to_strand = {}
+    sample_hash_to_strand = {}
     bed_files = glob.glob(os.path.join(bed_folder, "*.bed"))
     
     if not bed_files:
-        print(f"WARNING: No .bed files found in {bed_folder}")
-    
+        print(f"\nCRITICAL WARNING: No .bed files found in {bed_folder}")
+    else:
+        print(f"Found {len(bed_files)} BED files. Parsing...")
+        
     for bf in bed_files:
         with open(bf, 'r') as f:
             for line in f:
                 if line.startswith('#'): continue
                 parts = line.strip().split()
-                if len(parts) >= 5:
-                    # parts[3] = strand (+ or -)
-                    # parts[4] = local checksum / hash
-                    hash_to_strand[parts[4]] = parts[3]
+                if len(parts) >= 10:
+                    strand = parts[3]
+                    local_hash = parts[4]
+                    sample = parts[5]  # Column 6 is the genome name (e.g., HID357)
+                    ref_hash = parts[9]
                     
-    print(f"Loaded strand information for {len(hash_to_strand)} unique haplotype blocks.")
+                    # Map the strand specific to THIS genome
+                    sample_hash_to_strand[(sample, local_hash)] = strand
+                    sample_hash_to_strand[(sample, ref_hash)] = strand
+                    
+    print(f"Loaded strand information for {len(sample_hash_to_strand)} Genome-Hash pairs.")
 
     # 2. LOAD REFERENCE ANNOTATIONS
     print("Loading BED annotations (Interval mapping)...")
@@ -114,27 +121,40 @@ def main():
             for s_idx, h in enumerate(cols[3:]):
                 if h != '.': hash_groups[h].append(samples[s_idx])
             
-            # Determine the consensus strand for this column (majority rule)
-            col_strands = [hash_to_strand.get(h.strip('<>'), '+') for h in hash_groups.keys() if h != '.']
-            consensus_strand = max(set(col_strands), key=col_strands.count) if col_strands else '+'
-            
+            # Determine the consensus strand for the COLUMN (for the UI arrow)
+            # We just take a peek at the first available strand in this column
+            consensus_strand = "+"
+            for h in hash_groups.keys():
+                if h != '.':
+                    clean_h = h.strip('<>')
+                    # Look up the first sample's strand for this hash to guess column direction
+                    first_samp = hash_groups[h][0]
+                    consensus_strand = sample_hash_to_strand.get((first_samp, clean_h), "+")
+                    break
+
             data["columns"].append({
                 "col": col_idx, 
                 "chrom": chrom, 
                 "start": start, 
                 "end": end, 
                 "anno": anno_text,
-                "strand": consensus_strand  # Added to the column for the UI arrows
+                "strand": consensus_strand
             })
             
             for h, samps in hash_groups.items():
-                clean_h = h.strip('<>') # Remove brackets for dictionary lookup
+                clean_h = h.strip('<>')
+                
+                # Build a dictionary of exactly which strand each genome is on
+                strand_dict = {}
+                for s in samps:
+                    strand_dict[s] = sample_hash_to_strand.get((s, clean_h), "?")
+                    
                 data["segments"].append({
                     "id": f"c{col_idx}_{h}", 
                     "col": col_idx, 
                     "hash": h, 
                     "samples": samps,
-                    "strand": hash_to_strand.get(clean_h, "?")  # Now it will find the match!
+                    "strands": strand_dict  # This replaces the single strand string
                 })
 
             if col_idx > 0:
