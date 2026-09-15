@@ -1,12 +1,64 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <title>Barley Pangenome Rail Map</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body { font-family: sans-serif; margin: 0; background: #f4f6f8; color: #222; overflow: hidden; }
-        #toolbar { background: #ffffff; border-bottom: 1px solid #ddd; z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); }
+        :root {
+            /* Light Theme Variables */
+            --bg-color: #f4f6f8;
+            --text-color: #222222;
+            --toolbar-bg: #ffffff;
+            --toolbar-border: #dddddd;
+            --input-bg: #ffffff;
+            --input-border: #bbbbbb;
+            --input-text: #222222;
+            --status-bg: #e2e8f0;
+            --status-text: #333333;
+            --dim-text: #666666;
+            --ruler-line: #cccccc;
+            
+            --primary-color: #006b5b;
+            --secondary-color: #c2185b;
+            --fwd-color: #1b5e20;
+            --rev-color: #b71c1c;
+            
+            --pipe-fill: #eaedf2;
+            --pipe-hover: #d1d5db;
+            --tooltip-bg: rgba(255, 255, 255, 0.98);
+            --tooltip-border: #cccccc;
+            --tooltip-text: #222222;
+        }
+
+        [data-theme="dark"] {
+            /* Dark Theme Variables */
+            --bg-color: #121212;
+            --text-color: #ffffff;
+            --toolbar-bg: #1e1e1e;
+            --toolbar-border: #333333;
+            --input-bg: #333333;
+            --input-border: #555555;
+            --input-text: #ffffff;
+            --status-bg: #000000;
+            --status-text: #aaaaaa;
+            --dim-text: #aaaaaa;
+            --ruler-line: #555555;
+            
+            --primary-color: #00ffcc;
+            --secondary-color: #ff66cc;
+            --fwd-color: #4CAF50;
+            --rev-color: #FF5252;
+            
+            --pipe-fill: #1e1e24;
+            --pipe-hover: #3a3a44;
+            --tooltip-bg: rgba(0, 0, 0, 0.95);
+            --tooltip-border: #444444;
+            --tooltip-text: #ffffff;
+        }
+
+        body { font-family: sans-serif; margin: 0; background: var(--bg-color); color: var(--text-color); overflow: hidden; transition: background 0.3s, color 0.3s; }
+        #toolbar { background: var(--toolbar-bg); border-bottom: 1px solid var(--toolbar-border); z-index: 100; position: relative; padding: 10px 15px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); transition: background 0.3s; }
         .row { display: flex; gap: 15px; align-items: center; }
         
         #viewer { 
@@ -17,35 +69,34 @@
         }
         #viewer:active { cursor: grabbing; }
         
-        select, input[type="number"], input[type="text"] { background: #fff; color: #222; border: 1px solid #bbb; padding: 5px; height: 32px; border-radius: 4px; outline: none; }
+        select, input[type="number"], input[type="text"] { background: var(--input-bg); color: var(--input-text); border: 1px solid var(--input-border); padding: 5px; height: 32px; border-radius: 4px; outline: none; }
         select[multiple] { height: 40px; width: 150px; }
         input[type="number"] { width: 120px; font-family: monospace; }
         input[type="text"] { width: 160px; font-family: monospace; }
-        button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; }
+        button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; transition: background 0.2s;}
         button:hover { background: #2980b9; }
+        .theme-btn { background: var(--status-bg); color: var(--text-color); border: 1px solid var(--input-border); }
+        .theme-btn:hover { background: var(--input-border); }
         
-        #status { font-family: monospace; font-size: 13px; padding: 5px 10px; border-radius: 4px; background: #e2e8f0; color: #333; font-weight: bold;}
-        .info-text { font-size: 13px; color: #666; }
+        #status { font-family: monospace; font-size: 13px; padding: 5px 10px; border-radius: 4px; background: var(--status-bg); color: var(--status-text); font-weight: bold;}
+        .info-text { font-size: 13px; color: var(--dim-text); }
         
-        .ruler-line { stroke: #ccc; stroke-width: 1px; stroke-dasharray: 4,4; }
-        .ruler-text { fill: #d35400; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
+        .ruler-line { stroke: var(--ruler-line); stroke-width: 1px; stroke-dasharray: 4,4; }
+        .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
         /* Annotations */
-        .anno-text { fill: #006b5b; font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
-        .anno-text:hover { fill: #004d40; text-decoration: underline; }
-        .panbart-text { fill: #c2185b; font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
-        .panbart-text:hover { fill: #880e4f; text-decoration: underline; }
+        .anno-text { fill: var(--primary-color); font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
+        .anno-text:hover { text-decoration: underline; opacity: 0.8; }
+        .panbart-text { fill: var(--secondary-color); font-size: 14px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s; }
+        .panbart-text:hover { text-decoration: underline; opacity: 0.8; }
         
         /* Connectors and Pipes */
-        .transition-ribbon { fill: #eaedf2; cursor: pointer; transition: fill 0.2s; }
-        .transition-ribbon:hover { fill: #d1d5db; }
-        .base-pipe { fill: #eaedf2; transition: fill 0.2s; }
+        .transition-ribbon { fill: var(--pipe-fill); cursor: pointer; transition: fill 0.2s; }
+        .base-pipe { fill: var(--pipe-fill); transition: fill 0.2s; }
         
-        .tube-border { fill: none; stroke: #000; stroke-width: 1.5px; pointer-events: none; }
+        #tooltip { position: absolute; background: var(--tooltip-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--tooltip-border); color: var(--tooltip-text); font-size: 13px; max-width: 400px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 20px rgba(0,0,0,0.15); line-height: 1.4; transition: background 0.3s, color 0.3s; }
         
-        #tooltip { position: absolute; background: rgba(255, 255, 255, 0.98); padding: 12px; border-radius: 8px; border: 1px solid #ccc; color: #222; font-size: 13px; max-width: 400px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 20px rgba(0,0,0,0.15); line-height: 1.4; }
-        
-        #version-tag { position: fixed; bottom: 10px; right: 15px; background: rgba(255,255,255,0.9); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: #555; border: 1px solid #ccc; z-index: 1000; pointer-events: none; }
+        #version-tag { position: fixed; bottom: 10px; right: 15px; background: var(--tooltip-bg); padding: 5px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; color: var(--dim-text); border: 1px solid var(--tooltip-border); z-index: 1000; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -66,10 +117,12 @@
             <option value="Pan76_tube_map_chr7H.json.gz">chr7H</option>
         </select>
         
-        <div id="status" style="color:#666;">Initializing...</div>
+        <div id="status">Initializing...</div>
         
         <label style="margin-left:auto;">Highlight Genomes:</label>
         <select id="samplePicker" multiple></select>
+        
+        <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">🌙 Dark Mode</button>
     </div>
     <div class="row">
         <span class="info-text">🖱️ Click & Drag to Pan | Scroll to Zoom</span>
@@ -80,7 +133,7 @@
             <button onclick="searchGene()">Find</button>
         </div>
 
-        <div style="margin-left:15px; border-left: 1px solid #ddd; padding-left: 15px; display:flex; gap: 10px; align-items:center;">
+        <div style="margin-left:15px; border-left: 1px solid var(--toolbar-border); padding-left: 15px; display:flex; gap: 10px; align-items:center;">
             <label class="info-text">Jump Coord:</label>
             <input type="number" id="jumpStart" placeholder="Start Base">
             <input type="number" id="jumpEnd" placeholder="End Base (Opt)">
@@ -91,9 +144,21 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.5 (Light Theme & Tube Outlines)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.6 (Theme Toggle & No Borders)</div>
 
 <script>
+    function toggleTheme() {
+        const doc = document.documentElement;
+        const toggleBtn = document.getElementById('themeToggle');
+        if (doc.getAttribute('data-theme') === 'light') {
+            doc.setAttribute('data-theme', 'dark');
+            toggleBtn.innerText = '☀️ Light Mode';
+        } else {
+            doc.setAttribute('data-theme', 'light');
+            toggleBtn.innerText = '🌙 Dark Mode';
+        }
+    }
+
     const width = window.innerWidth, height = window.innerHeight - 100;
     const svg = d3.select("#viewer").append("svg").attr("width", width).attr("height", height);
     const g = svg.append("g");
@@ -174,7 +239,7 @@
                 });
             } catch (err) {}
         }
-        statusDiv.style.color = "#1b5e20";
+        statusDiv.style.color = "var(--primary-color)";
         statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
         checkUrlOnLoad();
     }
@@ -249,7 +314,7 @@
     function showError(msg) {
         statusDiv.style.color = "#c62828";
         statusDiv.innerText = msg;
-        setTimeout(() => { statusDiv.style.color = "#666"; statusDiv.innerText = "Ready."; }, 4000);
+        setTimeout(() => { statusDiv.style.color = "var(--dim-text)"; statusDiv.innerText = "Ready."; }, 4000);
     }
 
     document.getElementById("geneSearch").addEventListener("keypress", function(event) {
@@ -276,7 +341,7 @@
 
         const targetX = targetIdx * colWidth;
         svg.transition().duration(1000).call(zoom.transform, d3.zoomIdentity.translate(width/2 - targetX, height/2 + 100).scale(1));
-        statusDiv.style.color = "#00796b";
+        statusDiv.style.color = "var(--primary-color)";
         statusDiv.innerText = `Viewing ${geneName ? geneName : 'Region'} near ${start}`;
     }
     
@@ -394,7 +459,7 @@
             let eta = remainingCols / colsPerSec;
             if (!isFinite(eta) || eta < 0) eta = 0;
 
-            statusDiv.style.color = "#2980b9";
+            statusDiv.style.color = "#3498db";
             statusDiv.innerText = `Calculating Layout: ${progress}% (ETA: ${eta.toFixed(1)}s)`;
             
             await new Promise(r => setTimeout(r, 1));
@@ -404,7 +469,7 @@
         renderVisibleChunk();
         
         const totalTime = ((performance.now() - loadStartTime) / 1000).toFixed(2);
-        statusDiv.style.color = "#1b5e20";
+        statusDiv.style.color = "var(--primary-color)";
         statusDiv.innerText = `Success: Placed ${totalCols} blocks in ${totalTime}s`;
     }
 
@@ -480,7 +545,7 @@
                     g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
                      .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', ') + strandArrow)
                      .on("mouseover", (e) => {
-                         tooltip.style("display", "block").html(`<div style='color:#00796b; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:#555;">Strand: ${colInfo.strand || '?'}</span>`);
+                         tooltip.style("display", "block").html(`<div style='color:var(--primary-color); margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:var(--dim-text);">Strand: ${colInfo.strand || '?'}</span>`);
                      })
                      .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                      .on("click", () => {
@@ -504,7 +569,7 @@
             g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", annoTextTopY - 25)
                 .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY - 25})`).text(gene.name)
                 .on("mouseover", () => {
-                    tooltip.style("display", "block").html(`<div style="color:#c2185b; margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
+                    tooltip.style("display", "block").html(`<div style="color:var(--secondary-color); margin-bottom:5px;"><strong>PanBaRT gene</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
                 }).on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
@@ -512,7 +577,7 @@
         // Ribbon Transitions
         const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
         
-        // Fill Shape
+        // Fill Shape (No borders!)
         transitionGroup.append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
@@ -525,67 +590,45 @@
                 return `M ${src.x2},${sTop} C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop} L ${tgt.x1},${tBot} C ${tgt.x1 - cpOffset},${tBot} ${src.x2 + cpOffset},${sBot} ${src.x2},${sBot} Z`;
             })
             .on("mouseover", function(e, d) {
-                d3.select(this).style("fill", "#d1d5db");
+                d3.select(this).style("fill", "var(--pipe-hover)");
                 const tgtNode = globalData.nodeMap.get(d.target);
                 const tgtHash = tgtNode ? (tgtNode.hash ? tgtNode.hash : 'Split/Merge') : 'Unknown';
                 tooltip.style("display", "block").html(`
-                    <div style="font-family:monospace; color:#00796b; margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
+                    <div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>Transition to ${tgtHash}</strong></div>
                     <strong>Total samples: ${d.samples.length}</strong><br><br>
-                    <span style="color:#555;">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
+                    <span style="color:var(--dim-text);">${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}</span>
                 `);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).style("fill", "#eaedf2");
+                d3.select(this).style("fill", "var(--pipe-fill)");
                 hideTooltip();
-            });
-
-        // Ribbon Top Border
-        transitionGroup.append("path").attr("class", "tube-border")
-            .attr("d", d => {
-                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
-                if(!src || !tgt) return "";
-                const cpOffset = (tgt.x1 - src.x2) / 2;
-                const sTop = src.y - src.base_t / 2;
-                const tTop = tgt.y - tgt.base_t / 2;
-                return `M ${src.x2},${sTop} C ${src.x2 + cpOffset},${sTop} ${tgt.x1 - cpOffset},${tTop} ${tgt.x1},${tTop}`;
-            });
-
-        // Ribbon Bottom Border
-        transitionGroup.append("path").attr("class", "tube-border")
-            .attr("d", d => {
-                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
-                if(!src || !tgt) return "";
-                const cpOffset = (tgt.x1 - src.x2) / 2;
-                const sBot = src.y + src.base_t / 2;
-                const tBot = tgt.y + tgt.base_t / 2;
-                return `M ${src.x2},${sBot} C ${src.x2 + cpOffset},${sBot} ${tgt.x1 - cpOffset},${tBot} ${tgt.x1},${tBot}`;
             });
 
         // Render Pipes
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
-                d3.select(this).select(".base-pipe").style("fill", "#d1d5db"); 
+                d3.select(this).select(".base-pipe").style("fill", "var(--pipe-hover)"); 
                 
-                let tip = `<div style="font-family:monospace; color:#00796b; margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
+                let tip = `<div style="font-family:monospace; color:var(--primary-color); margin-bottom:8px; word-wrap:break-word;"><strong>${d.hash ? d.hash : 'Split/Merge'}</strong></div>`;
                 tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
                 if (d.pos_samps.length > 0) {
-                    tip += `<span style="color:#1b5e20;">Forward strand (+) = ${d.pos_samps.length}</span><br>`;
-                    tip += `<span style="font-size:12px; color:#555;">${d.pos_samps.slice(0, 25).join(', ')}${d.pos_samps.length > 25 ? '...' : ''}</span><br><br>`;
+                    tip += `<span style="color:var(--fwd-color);">Forward strand (+) = ${d.pos_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:var(--dim-text);">${d.pos_samps.slice(0, 25).join(', ')}${d.pos_samps.length > 25 ? '...' : ''}</span><br><br>`;
                 }
                 
                 if (d.neg_samps.length > 0) {
-                    tip += `<span style="color:#b71c1c;">Reverse strand (-) = ${d.neg_samps.length}</span><br>`;
-                    tip += `<span style="font-size:12px; color:#555;">${d.neg_samps.slice(0, 25).join(', ')}${d.neg_samps.length > 25 ? '...' : ''}</span><br>`;
+                    tip += `<span style="color:var(--rev-color);">Reverse strand (-) = ${d.neg_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:var(--dim-text);">${d.neg_samps.slice(0, 25).join(', ')}${d.neg_samps.length > 25 ? '...' : ''}</span><br>`;
                 }
                 
                 tooltip.style("display", "block").html(tip);
             })
             .on("mousemove", moveTooltip)
             .on("mouseout", function() {
-                d3.select(this).select(".base-pipe").style("fill", "#eaedf2"); 
+                d3.select(this).select(".base-pipe").style("fill", "var(--pipe-fill)"); 
                 hideTooltip();
             });
 
@@ -593,16 +636,6 @@
         rails.append("rect").attr("class", "base-pipe")
             .attr("x", d => d.x1).attr("width", d => d.x2 - d.x1)
             .attr("y", d => d.y - d.base_t / 2).attr("height", d => d.base_t);
-
-        // Pipe Top Border
-        rails.append("line").attr("class", "tube-border")
-            .attr("x1", d => d.x1).attr("x2", d => d.x2)
-            .attr("y1", d => d.y - d.base_t / 2).attr("y2", d => d.y - d.base_t / 2);
-
-        // Pipe Bottom Border
-        rails.append("line").attr("class", "tube-border")
-            .attr("x1", d => d.x1).attr("x2", d => d.x2)
-            .attr("y1", d => d.y + d.base_t / 2).attr("y2", d => d.y + d.base_t / 2);
 
         // Inner Wires
         rails.each(function(d) {
