@@ -37,12 +37,9 @@
         .panbart-text:hover { fill: #ffffff; text-decoration: underline; }
         
         /* Base Tracks & Pipes */
-        .base-track { fill: none; stroke: #333; stroke-linecap: round; cursor: pointer; transition: stroke 0.2s; }
-        .base-track:hover { stroke: #666; }
-        
-        /* Tapered Ribbon Connectors */
         .transition-ribbon { fill: #1e1e24; cursor: pointer; transition: fill 0.2s; }
         .transition-ribbon:hover { fill: #3a3a44; }
+        .connector-wire { fill: none; stroke: #888; stroke-linecap: round; stroke-width: 2.5px; pointer-events: none; }
         
         #tooltip { position: absolute; background: rgba(0,0,0,0.95); padding: 12px; border-radius: 8px; border: 1px solid #444; font-size: 13px; max-width: 350px; display: none; pointer-events: none; z-index: 10; box-shadow: 0px 8px 15px rgba(0,0,0,0.7); line-height: 1.4; }
         
@@ -425,7 +422,7 @@
         const rulerLineBotY = localMaxY + 40;
         
         // Massive dynamic scaling to make sizes incredibly obvious
-        const minThickness = 6;
+        const minThickness = 14; // Enough room to hold two 2.5px wires cleanly
         const maxThickness = 60; 
         const totalSamples = globalData.samples.length;
 
@@ -434,11 +431,12 @@
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
             d.neg_samps = d.samples.filter(s => d.strands && d.strands[s] === '-');
             
-            // Exact linear scale from minThickness up to maxThickness
+            // Background pipe scales dramatically with genome count
             d.base_t = minThickness + ((d.samples.length / totalSamples) * (maxThickness - minThickness));
             d.is_mixed = d.pos_samps.length > 0 && d.neg_samps.length > 0;
             
-            d.inner_t = Math.max(2, d.base_t * 0.35); 
+            // Inner Wires remain a fixed, standard thin width no matter the pipe size!
+            d.inner_t = 2.5; 
         });
 
         // 1. Rulers & Gene Annotations
@@ -496,13 +494,14 @@
                 .on("click", () => { executeJump(gene.start, gene.end, gene.name); });
         });
 
-        // 2. Tapered Ribbon Transitions (Always solid polygons)
-        g.selectAll(".transition").data(viewTrans).enter().append("path").attr("class", "transition-ribbon")
+        // 2. Tapered Ribbon Transitions (Background Connectors)
+        const transitionGroup = g.selectAll(".trans-group").data(viewTrans).enter().append("g").attr("class", "trans-group");
+        
+        transitionGroup.append("path").attr("class", "transition-ribbon")
             .attr("d", d => {
                 const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
                 if(!src || !tgt) return "";
                 
-                // Poly-ribbon connecting the top and bottom edges of both pipes dynamically
                 const cpOffset = (tgt.x1 - src.x2) / 2;
                 const sTop = src.y - src.base_t / 2;
                 const sBot = src.y + src.base_t / 2;
@@ -524,24 +523,32 @@
                 hideTooltip();
             });
 
+        // Add a standard thin wire through the center of the transition so it visually links the hubs
+        transitionGroup.append("path").attr("class", "connector-wire")
+            .attr("d", d => {
+                const src = globalData.nodeMap.get(d.source), tgt = globalData.nodeMap.get(d.target);
+                if(!src || !tgt) return "";
+                return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
+            });
+
         // 3. Render The Hash Pipes (Segments)
         const rails = g.selectAll(".rail-group").data(viewSegs).enter().append("g").attr("class", "rail-group")
             .style("cursor", "pointer")
             .on("mouseover", function(e, d) {
                 d3.select(this).select(".base-pipe").style("stroke", "#4a4a4a"); 
                 
-                // Formatted Tooltip with Genome Lists per Strand
+                // Formatted Tooltip with Genome Lists exactly as requested
                 let tip = `<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br>`;
-                tip += `<strong>Total samples:</strong> ${d.samples.length}<br><br>`;
+                tip += `<strong>Total samples: ${d.samples.length}</strong><br><br>`;
                 
                 if (d.pos_samps.length > 0) {
-                    tip += `<span style="color:#4CAF50;"><strong>Forward strand (+) = ${d.pos_samps.length}</strong></span><br>`;
-                    tip += `<span style="font-size:12px; color:#aaa;">${d.pos_samps.slice(0, 20).join(', ')}${d.pos_samps.length > 20 ? '...' : ''}</span><br><br>`;
+                    tip += `<span style="color:#4CAF50;">Forward strand (+) = ${d.pos_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:#aaa;">${d.pos_samps.slice(0, 25).join(', ')}${d.pos_samps.length > 25 ? '...' : ''}</span><br><br>`;
                 }
                 
                 if (d.neg_samps.length > 0) {
-                    tip += `<span style="color:#FF5252;"><strong>Reverse strand (-) = ${d.neg_samps.length}</strong></span><br>`;
-                    tip += `<span style="font-size:12px; color:#aaa;">${d.neg_samps.slice(0, 20).join(', ')}${d.neg_samps.length > 20 ? '...' : ''}</span><br>`;
+                    tip += `<span style="color:#FF5252;">Reverse strand (-) = ${d.neg_samps.length}</span><br>`;
+                    tip += `<span style="font-size:12px; color:#aaa;">${d.neg_samps.slice(0, 25).join(', ')}${d.neg_samps.length > 25 ? '...' : ''}</span><br>`;
                 }
                 
                 tooltip.style("display", "block").html(tip);
@@ -558,14 +565,14 @@
             .style("stroke-width", d => d.base_t)
             .style("stroke", "#1e1e24").style("stroke-linecap", "round").style("transition", "stroke 0.2s");
 
-        // B. Draw inner neutral wires (to visualize the strand data)
+        // B. Draw inner wires at fixed width (2.5px), safely offset from center
         rails.each(function(d) {
             const group = d3.select(this);
             const insetX1 = d.x1 + 4; 
             const insetX2 = d.x2 - 4;
 
             if (d.is_mixed) {
-                const offset = d.base_t * 0.22;
+                const offset = 4; // Fixed 4px offset so they are consistently side-by-side
                 // Forward (Solid)
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y - offset).attr("y2", d.y - offset)
@@ -579,7 +586,7 @@
                 const dash = isRev ? "5,5" : "none";
                 group.append("line").attr("class", "inner-wire")
                      .attr("x1", insetX1).attr("x2", insetX2).attr("y1", d.y).attr("y2", d.y)
-                     .style("stroke-width", Math.max(2, d.base_t * 0.5)).style("stroke", "#888").style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
+                     .style("stroke-width", d.inner_t).style("stroke", "#888").style("stroke-dasharray", dash).style("stroke-linecap", "round").style("pointer-events", "none");
             }
         });
 
@@ -604,14 +611,14 @@
                    .attr("y1", d => {
                        if (!d.is_mixed) return d.y + stackOffset;
                        const sampleStrand = d.strands ? d.strands[sample] : "+";
-                       const innerOffset = d.base_t * 0.22;
-                       return sampleStrand === "-" ? (d.y + innerOffset + stackOffset) : (d.y - innerOffset + stackOffset);
+                       const offset = 4; // Matches the fixed offset used when drawing
+                       return sampleStrand === "-" ? (d.y + offset + stackOffset) : (d.y - offset + stackOffset);
                    })
                    .attr("y2", d => {
                        if (!d.is_mixed) return d.y + stackOffset;
                        const sampleStrand = d.strands ? d.strands[sample] : "+";
-                       const innerOffset = d.base_t * 0.22;
-                       return sampleStrand === "-" ? (d.y + innerOffset + stackOffset) : (d.y - innerOffset + stackOffset);
+                       const offset = 4;
+                       return sampleStrand === "-" ? (d.y + offset + stackOffset) : (d.y - offset + stackOffset);
                    })
                    .style("stroke", color).style("stroke-width", 2.5).style("pointer-events", "none")
                    .style("stroke-dasharray", d => (d.strands && d.strands[sample] === "-") ? "4,4" : "none");
