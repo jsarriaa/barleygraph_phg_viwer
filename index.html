@@ -90,7 +90,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-14 | v1.7 (GPU Buffer Fixed)</div>
+<div id="version-tag">Build: 2026-09-15 | v1.8 (Strand Direction)</div>
 
 <script>
     const width = window.innerWidth, height = window.innerHeight - 100;
@@ -110,6 +110,50 @@
     const lineGen = d3.linkHorizontal().x(d => d.x).y(d => d.y);
 
     let globalGeneIndex = [];
+
+    // URL Management
+    function updateURLParams(params) {
+        const url = new URL(window.location);
+        url.searchParams.delete('gene');
+        url.searchParams.delete('chrom');
+        url.searchParams.delete('start');
+        url.searchParams.delete('end');
+        
+        for (const [key, value] of Object.entries(params)) {
+            if (value) url.searchParams.set(key, value);
+        }
+        window.history.pushState({}, '', url);
+    }
+
+    function checkUrlOnLoad() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const geneParam = urlParams.get('gene');
+        const chromParam = urlParams.get('chrom');
+        const startParam = urlParams.get('start');
+        const endParam = urlParams.get('end');
+
+        if (geneParam) {
+            document.getElementById('geneSearch').value = geneParam;
+            searchGene();
+        } else if (chromParam && startParam) {
+            const chromSelect = document.getElementById('chromSelect');
+            let targetValue = "";
+            for (let i = 0; i < chromSelect.options.length; i++) {
+                if (chromSelect.options[i].text === chromParam) {
+                    targetValue = chromSelect.options[i].value;
+                    break;
+                }
+            }
+            if (targetValue) {
+                chromSelect.value = targetValue;
+                document.getElementById('jumpStart').value = startParam;
+                if (endParam) document.getElementById('jumpEnd').value = endParam;
+                
+                pendingJump = { start: parseInt(startParam), end: endParam ? parseInt(endParam) : null, gene: null };
+                chromSelect.dispatchEvent(new Event('change'));
+            }
+        }
+    }
 
     async function loadGeneIndexes() {
         const files = [
@@ -151,6 +195,9 @@
         }
         statusDiv.style.color = "#2ecc71";
         statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
+        
+        // Trigger Deep Linking Check once DB is loaded
+        checkUrlOnLoad();
     }
 
     loadGeneIndexes();
@@ -209,13 +256,15 @@
     });
 
     function searchGene() {
-        const query = document.getElementById('geneSearch').value.trim().toLowerCase();
+        const queryInput = document.getElementById('geneSearch').value.trim();
+        const query = queryInput.toLowerCase();
         if(!query) return;
 
         if (globalGeneIndex.length > 0) {
             const match = globalGeneIndex.find(g => g.name.toLowerCase().includes(query));
             
             if (match) {
+                updateURLParams({ gene: match.name });
                 statusDiv.style.color = "#00ffcc";
                 statusDiv.innerText = `Found ${match.name} on ${match.chrom}. Preparing view...`;
                 
@@ -230,15 +279,16 @@
                     executeJump(match.start, match.end, match.name);
                 }
             } else {
-                showError(`Gene '${query}' not found in global database.`);
+                showError(`Gene '${queryInput}' not found in global database.`);
             }
         } else if (globalData) {
             const targetIdx = globalData.columns.findIndex(c => c.anno && c.anno.toLowerCase().includes(query));
             if (targetIdx !== -1) {
+                updateURLParams({ gene: queryInput });
                 const targetCol = globalData.columns[targetIdx];
-                executeJump(targetCol.start, targetCol.end, query);
+                executeJump(targetCol.start, targetCol.end, queryInput);
             } else {
-                showError(`Gene '${query}' not found on this chromosome.`);
+                showError(`Gene '${queryInput}' not found on this chromosome.`);
             }
         }
     }
@@ -258,7 +308,17 @@
     function jumpToRegion() {
         const start = parseInt(document.getElementById('jumpStart').value);
         const end = parseInt(document.getElementById('jumpEnd').value);
-        if(start && !isNaN(start)) executeJump(start, end);
+        const chromSelect = document.getElementById('chromSelect');
+        const chromText = chromSelect.options[chromSelect.selectedIndex].text;
+
+        if(start && !isNaN(start)) {
+            updateURLParams({ 
+                chrom: chromText !== "-- Select --" ? chromText : "", 
+                start: start, 
+                end: end || "" 
+            });
+            executeJump(start, end);
+        }
     }
 
     function executeJump(start, end, geneName = null) {
@@ -403,10 +463,16 @@
             if (colInfo.anno) {
                 const validAnnos = colInfo.anno.split(',').filter(a => !a.toLowerCase().includes('intergenic'));
                 if (validAnnos.length > 0) {
+                    
+                    // Determine strand arrow for column
+                    let strandArrow = "";
+                    if (colInfo.strand === "+") strandArrow = " →";
+                    if (colInfo.strand === "-") strandArrow = " ←";
+
                     g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", annoTextTopY)
-                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', '))
+                     .attr("transform", `rotate(-30, ${colCenterX}, ${annoTextTopY})`).text(validAnnos.join(', ') + strandArrow)
                      .on("mouseover", (e) => {
-                         tooltip.style("display", "block").html(`<div style='color:#00ffcc; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}`);
+                         tooltip.style("display", "block").html(`<div style='color:#00ffcc; margin-bottom:5px;'><strong>Genes (Click to view on Ensembl)</strong></div>${validAnnos.join('<br>')}<br><span style="color:#888;">Strand: ${colInfo.strand || '?'}</span>`);
                      })
                      .on("mousemove", moveTooltip)
                      .on("mouseout", hideTooltip)
@@ -472,12 +538,13 @@
                 });
         });
 
-        // Render base tracks
+        // Render base tracks (Segments)
         g.selectAll(".rail").data(viewSegs).enter().append("line").attr("class", "base-track")
             .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y).attr("y2", d => d.y)
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
+            .style("stroke-dasharray", d => d.strand === "-" ? "5,5" : "none") // NEW STRAND STYLE
             .on("mouseover", (e, d) => {
-                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
+                tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>Strand:</strong> ${d.strand || '?'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
             })
             .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
 
@@ -489,6 +556,10 @@
                 return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
             })
             .style("stroke-width", d => Math.max(2, (d.samples.length / totalSamples) * maxThickness))
+            .style("stroke-dasharray", d => { // NEW STRAND STYLE (Inherits from source node)
+                const src = globalData.nodeMap.get(d.source);
+                return (src && src.strand === "-") ? "5,5" : "none";
+            })
             .on("mouseover", (e, d) => {
                 tooltip.style("display", "block").html(`<strong>Hash:</strong> ${d.hash ? d.hash.substring(0,8) : 'Split/Merge'}<br><strong>${d.samples.length} Samples</strong><br><br>${d.samples.slice(0, 15).join(', ')}${d.samples.length > 15 ? '...' : ''}`);
             })
@@ -512,7 +583,8 @@
 
             hlLayer.selectAll(`.hl-r-${idx}`).data(window.activeSegs.filter(s => s.samples.includes(sample))).enter().append("line")
                    .attr("x1", d => d.x1).attr("x2", d => d.x2).attr("y1", d => d.y + offset).attr("y2", d => d.y + offset)
-                   .style("stroke", color).style("stroke-width", 3).style("pointer-events", "none");
+                   .style("stroke", color).style("stroke-width", 3).style("pointer-events", "none")
+                   .style("stroke-dasharray", d => d.strand === "-" ? "5,5" : "none"); // NEW STRAND STYLE
 
             hlLayer.selectAll(`.hl-t-${idx}`).data(window.activeTrans.filter(t => t.samples.includes(sample))).enter().append("path")
                    .attr("d", d => {
@@ -521,7 +593,11 @@
                        return lineGen({source: {x: src.x2, y: src.y}, target: {x: tgt.x1, y: tgt.y}});
                    })
                    .attr("transform", `translate(0, ${offset})`)
-                   .style("stroke", color).style("stroke-width", 3).style("fill", "none").style("pointer-events", "none");
+                   .style("stroke", color).style("stroke-width", 3).style("fill", "none").style("pointer-events", "none")
+                   .style("stroke-dasharray", d => { // NEW STRAND STYLE (Inherits from source node)
+                       const src = globalData.nodeMap.get(d.source);
+                       return (src && src.strand === "-") ? "5,5" : "none";
+                   });
         });
     }
 

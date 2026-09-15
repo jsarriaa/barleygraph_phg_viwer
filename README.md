@@ -10,5 +10,5 @@ cat pgsb_LC.morexv3 pgsb_HC.morexv3 > pgsb_genes.tsv
 
 # To get the json files from the hapIDranges.tsv
 ```
-python3 ranges2tubemap.py Pan76-mmap_pro/output/hapIDranges.tsv Pan76-mmap_pro/output/ref_ranges.bed /agave/compbio/jsarria/Pan76_tube_map.json
+python3 ranges2tubemap.py /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/output/hapIDranges.tsv /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/output/ref_ranges.bed /agave/compbio/jsarria/Pan76_tube_map /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/vcf_dbs/hvcf_files/
 ```
