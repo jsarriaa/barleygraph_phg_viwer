@@ -148,7 +148,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.8 (PanBarLex & Gene Stacking)</div>
+<div id="version-tag">Build: 2026-09-15 | v2.9 (Fixed Portal Links)</div>
 
 <script>
     function toggleTheme() {
@@ -562,7 +562,9 @@
                      })
                      .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                      .on("click", () => {
-                         window.open(`https://panbarlex.ipk-gatersleben.de/#gene/${gene}`, '_blank');
+                         // Safely map r3 namespace to PROJ for the PanBarLex URL
+                         const linkGene = gene.replace("HORVU.MOREX.r3.", "HORVU.MOREX.PROJ.");
+                         window.open(`https://panbarlex.ipk-gatersleben.de/#gene/${linkGene}`, '_blank');
                      });
                      
                      colGeneOffsets[colCenterX] = currentOffset + geneSpacing;
@@ -570,7 +572,7 @@
             }
         });
 
-        // PanBaRT annotations (Stacks directly on top of any PGSB genes in the same column)
+        // PanBaRT annotations
         const currentChrom = globalData.columns[0].chrom;
         const viewStart = parseInt(viewCols[0].start);
         const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
@@ -587,10 +589,10 @@
             g.append("text").attr("class", "panbart-text").attr("x", colCenterX).attr("y", yPos)
                 .attr("transform", `rotate(-30, ${colCenterX}, ${yPos})`).text(gene.name)
                 .on("mouseover", () => {
-                    tooltip.style("display", "block").html(`<div style="color:var(--secondary-color); margin-bottom:5px;"><strong>PanBaRT gene (Click to view on PanBarLex)</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
+                    tooltip.style("display", "block").html(`<div style="color:var(--secondary-color); margin-bottom:5px;"><strong>PanBaRT gene (Click to view PanBaRT portal)</strong></div><strong>${gene.name}</strong><br>${gene.graphChrom}:${gene.start}-${gene.end}<br>Strand: ${gene.strand || "?"}`);
                 }).on("mousemove", moveTooltip).on("mouseout", hideTooltip)
                 .on("click", () => { 
-                    window.open(`https://panbarlex.ipk-gatersleben.de/#gene/${gene.name}`, '_blank'); 
+                    window.open(`https://ics.hutton.ac.uk/panbart20/index.html`, '_blank'); 
                 });
                 
             colGeneOffsets[colCenterX] = currentOffset + geneSpacing;
