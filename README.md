@@ -12,3 +12,6 @@ cat pgsb_LC.morexv3 pgsb_HC.morexv3 > pgsb_genes.tsv
 ```
 python3 ranges2tubemap.py /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/output/hapIDranges.tsv /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/output/ref_ranges.bed /agave/compbio/jsarria/Pan76_tube_map /scratch/PHG_barleymap/Pan76/Pan76-mmap_pro/vcf_dbs/hvcf_files/
 ```
+
+> Enter the website:
+> https://jsarriaa.github.io/barleygraph_phg_viwer/
