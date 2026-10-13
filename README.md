@@ -1,5 +1,26 @@
 # barleygraph_phg_viwer
-Hosting an online browser tool to visualize the global barley pangenome with Practical Haplotype Graph
+
+Static browser viewer for exploring pangenome graphs and their chromosomes.
+
+## Available graphs and data layout
+
+Choose a graph in the viewer before selecting a chromosome:
+
+- **Pan76 (Barley)** — chromosomes `chr1H`–`chr7H` and `chrUn`
+- **Wheat30 (Bread wheat)** — chromosomes `chr1A`–`chr7A` and `chr1B`–`chr7B`
+
+Chromosome JSON files are organized by graph under `chromosomes/`:
+
+```text
+chromosomes/
+├── Pan76/
+│   └── Pan76_tube_map_chr*.json.gz
+└── Wheat30/
+    └── Wheat30_mmap_pro_chr*.json.gz
+```
+
+Pan76 gene searches use the PGSB and PanBaRT indexes. Wheat30 gene searches
+use the annotations in the currently selected chromosome.
 
 # This for the gene indexing
 ```

@@ -75,6 +75,7 @@
         
         select, input[type="number"], input[type="text"] { background: var(--input-bg); color: var(--input-text); border: 1px solid var(--input-border); padding: 5px; height: 32px; border-radius: 4px; outline: none; }
         select[multiple] { height: 40px; width: 150px; }
+        select:disabled, input:disabled, button:disabled { opacity: 0.55; cursor: not-allowed; }
         input[type="number"] { width: 120px; font-family: monospace; }
         input[type="text"] { width: 160px; font-family: monospace; }
         button { background: #3498db; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; height: 32px; transition: background 0.2s;}
@@ -109,22 +110,22 @@
     <div class="row">
         <strong>Pangenome Map</strong>
         
-        <label>Load Chromosome:</label>
-        <select id="chromSelect">
+        <label for="graphSelect">Graph:</label>
+        <select id="graphSelect">
             <option value="">-- Select --</option>
-            <option value="Pan76_tube_map_chr1H.json.gz">chr1H</option>
-            <option value="Pan76_tube_map_chr2H.json.gz">chr2H</option>
-            <option value="Pan76_tube_map_chr3H.json.gz">chr3H</option>
-            <option value="Pan76_tube_map_chr4H.json.gz">chr4H</option>
-            <option value="Pan76_tube_map_chr5H.json.gz">chr5H</option>
-            <option value="Pan76_tube_map_chr6H.json.gz">chr6H</option>
-            <option value="Pan76_tube_map_chr7H.json.gz">chr7H</option>
+            <option value="Pan76">Pan76 (Barley)</option>
+            <option value="Wheat30">Wheat30 (Bread wheat)</option>
+        </select>
+
+        <label for="chromSelect">Load Chromosome:</label>
+        <select id="chromSelect" disabled>
+            <option value="">-- Select graph first --</option>
         </select>
         
-        <div id="status">Initializing...</div>
+        <div id="status">Select a graph to begin.</div>
         
-        <label style="margin-left:auto;">Highlight Genomes:</label>
-        <select id="samplePicker" multiple></select>
+        <label style="margin-left:auto;" for="samplePicker">Highlight Genomes:</label>
+        <select id="samplePicker" multiple disabled></select>
         
         <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">🌙 Dark Mode</button>
     </div>
@@ -133,15 +134,15 @@
         
         <div style="margin-left:auto; display:flex; gap: 10px; align-items:center;">
             <label class="info-text">Find Gene:</label>
-            <input type="text" id="geneSearch" placeholder="e.g. 1HG0000030">
-            <button onclick="searchGene()">Find</button>
+            <input type="text" id="geneSearch" placeholder="e.g. 1HG0000030" disabled>
+            <button id="geneSearchButton" onclick="searchGene()" disabled>Find</button>
         </div>
 
         <div style="margin-left:15px; border-left: 1px solid var(--toolbar-border); padding-left: 15px; display:flex; gap: 10px; align-items:center;">
             <label class="info-text">Jump Coord:</label>
-            <input type="number" id="jumpStart" placeholder="Start Base">
-            <input type="number" id="jumpEnd" placeholder="End Base (Opt)">
-            <button onclick="jumpToRegion()">Go</button>
+            <input type="number" id="jumpStart" placeholder="Start Base" disabled>
+            <input type="number" id="jumpEnd" placeholder="End Base (Opt)" disabled>
+            <button id="jumpButton" onclick="jumpToRegion()" disabled>Go</button>
         </div>
     </div>
 </div>
@@ -169,9 +170,38 @@
     const tooltip = d3.select("#tooltip");
     const statusDiv = document.getElementById("status");
 
+    const graphChromosomes = {
+        Pan76: [
+            ["chr1H", "Pan76_tube_map_chr1H.json.gz"],
+            ["chr2H", "Pan76_tube_map_chr2H.json.gz"],
+            ["chr3H", "Pan76_tube_map_chr3H.json.gz"],
+            ["chr4H", "Pan76_tube_map_chr4H.json.gz"],
+            ["chr5H", "Pan76_tube_map_chr5H.json.gz"],
+            ["chr6H", "Pan76_tube_map_chr6H.json.gz"],
+            ["chr7H", "Pan76_tube_map_chr7H.json.gz"],
+            ["chrUn", "Pan76_tube_map_chrUn.json.gz"]
+        ],
+        Wheat30: [
+            ["chr1A", "Wheat30_mmap_pro_chr1A.json.gz"],
+            ["chr1B", "Wheat30_mmap_pro_chr1B.json.gz"],
+            ["chr2A", "Wheat30_mmap_pro_chr2A.json.gz"],
+            ["chr2B", "Wheat30_mmap_pro_chr2B.json.gz"],
+            ["chr3A", "Wheat30_mmap_pro_chr3A.json.gz"],
+            ["chr3B", "Wheat30_mmap_pro_chr3B.json.gz"],
+            ["chr4A", "Wheat30_mmap_pro_chr4A.json.gz"],
+            ["chr4B", "Wheat30_mmap_pro_chr4B.json.gz"],
+            ["chr5A", "Wheat30_mmap_pro_chr5A.json.gz"],
+            ["chr5B", "Wheat30_mmap_pro_chr5B.json.gz"],
+            ["chr6A", "Wheat30_mmap_pro_chr6A.json.gz"],
+            ["chr6B", "Wheat30_mmap_pro_chr6B.json.gz"],
+            ["chr7A", "Wheat30_mmap_pro_chr7A.json.gz"],
+            ["chr7B", "Wheat30_mmap_pro_chr7B.json.gz"]
+        ]
+    };
     let globalData = null;       
     let currentTransform = d3.zoomIdentity.translate(50, height / 2 + 100); 
     let pendingJump = null;
+    let loadRequestId = 0;
 
     const colWidth = 300; 
     const transitionWidth = 100; 
@@ -184,6 +214,7 @@
 
     function updateURLParams(params) {
         const url = new URL(window.location);
+        url.searchParams.delete('graph');
         url.searchParams.delete('gene');
         url.searchParams.delete('chrom');
         url.searchParams.delete('start');
@@ -196,31 +227,39 @@
 
     function checkUrlOnLoad() {
         const urlParams = new URLSearchParams(window.location.search);
+        const graphParam = urlParams.get('graph');
         const geneParam = urlParams.get('gene');
         const chromParam = urlParams.get('chrom');
         const startParam = urlParams.get('start');
         const endParam = urlParams.get('end');
 
+        const targetGraph = graphParam || ((geneParam || chromParam) ? "Pan76" : "");
+        if (!targetGraph || !graphChromosomes[targetGraph]) return;
+
+        const graphSelect = document.getElementById('graphSelect');
+        graphSelect.value = targetGraph;
+        graphSelect.dispatchEvent(new Event('change'));
+
+        const chromSelect = document.getElementById('chromSelect');
+        if (chromParam && startParam) {
+            const targetOption = Array.from(chromSelect.options).find(option => option.text === chromParam);
+            if (targetOption) {
+                chromSelect.value = targetOption.value;
+                document.getElementById('jumpStart').value = startParam;
+                if (endParam) document.getElementById('jumpEnd').value = endParam;
+                pendingJump = {
+                    start: parseInt(startParam, 10),
+                    end: endParam ? parseInt(endParam, 10) : null,
+                    gene: geneParam
+                };
+                chromSelect.dispatchEvent(new Event('change'));
+                return;
+            }
+        }
+
         if (geneParam) {
             document.getElementById('geneSearch').value = geneParam;
             searchGene();
-        } else if (chromParam && startParam) {
-            const chromSelect = document.getElementById('chromSelect');
-            let targetValue = "";
-            for (let i = 0; i < chromSelect.options.length; i++) {
-                if (chromSelect.options[i].text === chromParam) {
-                    targetValue = chromSelect.options[i].value;
-                    break;
-                }
-            }
-            if (targetValue) {
-                chromSelect.value = targetValue;
-                document.getElementById('jumpStart').value = startParam;
-                if (endParam) document.getElementById('jumpEnd').value = endParam;
-                
-                pendingJump = { start: parseInt(startParam), end: endParam ? parseInt(endParam) : null, gene: null };
-                chromSelect.dispatchEvent(new Event('change'));
-            }
         }
     }
 
@@ -229,7 +268,7 @@
         for (const item of files) {
             try {
                 const response = await fetch(item.file + "?t=" + new Date().getTime());
-                if (!response.ok) continue;
+                if (!response.ok) throw new Error(`HTTP ${response.status} loading ${item.file}`);
                 const text = await response.text();
                 text.split("\n").forEach(line => {
                     const parts = line.trim().split(/\s+/);
@@ -238,13 +277,17 @@
                     if (isNaN(start) || isNaN(end)) return;
                     globalGeneIndex.push({
                         name: parts[0], graphChrom: parts[1], chrom: parts[1].split("_")[0],
-                        start: start, end: end, source: item.source
+                        start: start, end: end, source: item.source, graph: "Pan76"
                     });
                 });
-            } catch (err) {}
+            } catch (err) {
+                console.warn(`Could not load ${item.file}:`, err);
+            }
         }
-        statusDiv.style.color = "var(--primary-color)";
-        statusDiv.innerText = `Ready. Linked ${globalGeneIndex.length} genes.`;
+        if (!document.getElementById('chromSelect').value) {
+            statusDiv.style.color = "var(--dim-text)";
+            statusDiv.innerText = `Select a graph to begin. ${globalGeneIndex.length} Pan76 gene records indexed.`;
+        }
         checkUrlOnLoad();
     }
 
@@ -258,36 +301,83 @@
     });
     svg.call(zoom).call(zoom.transform, currentTransform);
 
+    function setChromosomeControlsEnabled(enabled) {
+        ["samplePicker", "geneSearch", "geneSearchButton", "jumpStart", "jumpEnd", "jumpButton"].forEach(id => {
+            document.getElementById(id).disabled = !enabled;
+        });
+    }
+
+    document.getElementById('graphSelect').addEventListener('change', e => {
+        const graphId = e.target.value;
+        loadRequestId++;
+        const chromSelect = document.getElementById('chromSelect');
+        const options = graphChromosomes[graphId] || [];
+        chromSelect.replaceChildren(new Option(options.length ? "-- Select chromosome --" : "-- Select graph first --", ""));
+        options.forEach(([label, filename]) => {
+            chromSelect.add(new Option(label, `chromosomes/${graphId}/${filename}`));
+        });
+        chromSelect.disabled = options.length === 0;
+        chromSelect.value = "";
+        globalData = null;
+        pendingJump = null;
+        d3.select("#samplePicker").selectAll("option").remove();
+        setChromosomeControlsEnabled(false);
+        g.selectAll("*").remove();
+        if (graphId) {
+            statusDiv.style.color = "var(--dim-text)";
+            statusDiv.innerText = `${graphId} selected. Choose a chromosome.`;
+        } else {
+            statusDiv.style.color = "var(--dim-text)";
+            statusDiv.innerText = "Select a graph to begin.";
+        }
+    });
+
     document.getElementById('chromSelect').addEventListener('change', e => {
         const fileUrl = e.target.value;
         if (!fileUrl) return;
-        
+
+        const requestId = ++loadRequestId;
+        globalData = null;
+        setChromosomeControlsEnabled(false);
         statusDiv.style.color = "#d35400";
         statusDiv.innerText = `Downloading data...`;
 
         const loadStartTime = performance.now();
         fetch(fileUrl + "?t=" + new Date().getTime())
             .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status} loading ${fileUrl}`);
+                if (!response.body) throw new Error(`No response body loading ${fileUrl}`);
                 const ds = new DecompressionStream('gzip');
                 const decompressedStream = response.body.pipeThrough(ds);
                 return new Response(decompressedStream).json();
             })
             .then(data => {
+                if (requestId !== loadRequestId) return;
                 statusDiv.innerText = "Extracting sequences...";
                 globalData = data;
                 
                 const sampSelect = d3.select("#samplePicker");
                 sampSelect.selectAll("option").remove();
                 sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
+                setChromosomeControlsEnabled(true);
 
-                computeChromosomeLayout(loadStartTime).then(() => {
+                computeChromosomeLayout(loadStartTime, requestId).then(() => {
+                    if (requestId !== loadRequestId) return;
                     if (pendingJump) {
                         executeJump(pendingJump.start, pendingJump.end, pendingJump.gene);
                         pendingJump = null;
                     } else {
                         svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(50, height / 2 + 100).scale(1));
                     }
+                }).catch(error => {
+                    if (requestId === loadRequestId) showError(`Could not render chromosome: ${error.message}`);
                 });
+            })
+            .catch(error => {
+                if (requestId !== loadRequestId) return;
+                globalData = null;
+                setChromosomeControlsEnabled(false);
+                showError(`Could not load chromosome: ${error.message}`);
             });
     });
 
@@ -296,29 +386,70 @@
         const query = queryInput.toLowerCase();
         if(!query) return;
 
-        if (globalGeneIndex.length > 0) {
-            const match = globalGeneIndex.find(g => g.name.toLowerCase().includes(query));
-            if (match) {
-                updateURLParams({ gene: match.name });
-                const expectedFile = `Pan76_tube_map_${match.chrom}.json.gz`;
-                const chromSelect = document.getElementById('chromSelect');
-                if (chromSelect.value !== expectedFile) {
-                    chromSelect.value = expectedFile;
+        const graphId = document.getElementById('graphSelect').value;
+        if (!graphId) {
+            showError("Select a graph before searching for a gene.");
+            return;
+        }
+
+        const graphMatches = globalGeneIndex.filter(gene => gene.graph === graphId);
+        let match = graphMatches.find(gene => gene.name.toLowerCase() === query);
+        if (!match) match = graphMatches.find(gene => gene.name.toLowerCase().includes(query));
+
+        if (match) {
+            const chromSelect = document.getElementById('chromSelect');
+            const targetOption = Array.from(chromSelect.options).find(option => option.text === match.chrom);
+            if (targetOption) {
+                document.getElementById('geneSearch').value = match.name;
+                document.getElementById('jumpStart').value = match.start;
+                document.getElementById('jumpEnd').value = match.end;
+                updateURLParams({ graph: graphId, gene: match.name, chrom: match.chrom, start: match.start, end: match.end });
+                if (chromSelect.value !== targetOption.value) {
+                    chromSelect.value = targetOption.value;
                     pendingJump = { start: match.start, end: match.end, gene: match.name };
-                    chromSelect.dispatchEvent(new Event('change')); 
+                    chromSelect.dispatchEvent(new Event('change'));
                 } else {
                     executeJump(match.start, match.end, match.name);
                 }
-            } else {
-                showError(`Gene '${queryInput}' not found in database.`);
+                return;
             }
         }
+
+        if (globalData && globalData.columns) {
+            const annotationMatches = globalData.columns.flatMap(column =>
+                (column.anno || "").split(",").map(name => ({ name: name.trim(), column }))
+            ).filter(entry => entry.name && !entry.name.toLowerCase().includes("intergenic"));
+            match = annotationMatches.find(entry => entry.name.toLowerCase() === query)
+                || annotationMatches.find(entry => entry.name.toLowerCase().includes(query));
+            if (match) {
+                const start = parseInt(match.column.start, 10);
+                const end = parseInt(match.column.end, 10);
+                document.getElementById('geneSearch').value = match.name;
+                document.getElementById('jumpStart').value = start;
+                document.getElementById('jumpEnd').value = end;
+                const chromText = document.getElementById('chromSelect').selectedOptions[0].text;
+                updateURLParams({ graph: graphId, gene: match.name, chrom: chromText, start, end });
+                executeJump(start, end, match.name);
+                return;
+            }
+        }
+        showError(`Gene '${queryInput}' not found in ${graphId}${globalData ? " chromosome" : " gene index"}.`);
     }
 
     function showError(msg) {
         statusDiv.style.color = "#c62828";
         statusDiv.innerText = msg;
-        setTimeout(() => { statusDiv.style.color = "var(--dim-text)"; statusDiv.innerText = "Ready."; }, 4000);
+        setTimeout(() => {
+            if (globalData) {
+                statusDiv.style.color = "var(--primary-color)";
+                statusDiv.innerText = "Chromosome loaded.";
+            } else {
+                statusDiv.style.color = "var(--dim-text)";
+                statusDiv.innerText = document.getElementById('graphSelect').value
+                    ? "Choose a chromosome."
+                    : "Select a graph to begin.";
+            }
+        }, 4000);
     }
 
     document.getElementById("geneSearch").addEventListener("keypress", function(event) {
@@ -330,10 +461,15 @@
     function jumpToRegion() {
         const start = parseInt(document.getElementById('jumpStart').value);
         const end = parseInt(document.getElementById('jumpEnd').value);
+        const graphId = document.getElementById('graphSelect').value;
         const chromSelect = document.getElementById('chromSelect');
+        if (!graphId || !chromSelect.value || !globalData) {
+            showError("Select a graph and chromosome before jumping to a region.");
+            return;
+        }
         const chromText = chromSelect.options[chromSelect.selectedIndex].text;
         if(start && !isNaN(start)) {
-            updateURLParams({ chrom: chromText !== "-- Select --" ? chromText : "", start: start, end: end || "" });
+            updateURLParams({ graph: graphId, chrom: chromText, start: start, end: end || "" });
             executeJump(start, end);
         }
     }
@@ -357,7 +493,7 @@
     let lastRenderStart = -1;
     let lastRenderEnd = -1;
 
-    async function computeChromosomeLayout(loadStartTime) {
+    async function computeChromosomeLayout(loadStartTime, requestId) {
         lastRenderStart = -1;
         lastRenderEnd = -1;
         
@@ -372,6 +508,7 @@
         statusDiv.innerText = "Indexing thickness mappings...";
 
         await new Promise(r => setTimeout(r, 10));
+        if (requestId !== loadRequestId) return;
 
         globalData.segments.forEach(d => {
             d.pos_samps = d.samples.filter(s => d.strands && d.strands[s] === '+');
@@ -388,6 +525,7 @@
         const calcStartTime = performance.now();
 
         for (let i = 0; i < totalCols; i += chunkSize) {
+            if (requestId !== loadRequestId) return;
             const chunk = globalData.columns.slice(i, i + chunkSize);
             
             chunk.forEach((colInfo, localIndex) => {
