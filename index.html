@@ -90,8 +90,9 @@
         .ruler-text { fill: #f39c12; font-size: 13px; text-anchor: middle; font-family: monospace; font-weight: bold; }
         
         /* Annotations - Increased font size for legibility */
-        .anno-text { fill: var(--primary-color); font-size: 15px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s, opacity 0.2s; }
-        .anno-text:hover { text-decoration: underline; opacity: 0.7; }
+        .anno-text { fill: var(--primary-color); font-size: 15px; text-anchor: middle; font-weight: bold; transition: fill 0.2s, opacity 0.2s; }
+        .anno-text.linked-anno { cursor: pointer; }
+        .anno-text.linked-anno:hover { text-decoration: underline; opacity: 0.7; }
         .panbart-text { fill: var(--secondary-color); font-size: 15px; text-anchor: middle; font-weight: bold; cursor: pointer; transition: fill 0.2s, opacity 0.2s; }
         .panbart-text:hover { text-decoration: underline; opacity: 0.7; }
         
@@ -114,7 +115,7 @@
         <select id="graphSelect">
             <option value="">-- Select --</option>
             <option value="Pan76">Pan76 (Barley)</option>
-            <option value="Wheat30">Wheat30 (Bread wheat)</option>
+            <option value="Wheat30">Wheat30 (Tetraploid wheat)</option>
         </select>
 
         <label for="chromSelect">Load Chromosome:</label>
@@ -694,13 +695,17 @@
                     if (colInfo.strand === "+") strandArrow = " →";
                     if (colInfo.strand === "-") strandArrow = " ←";
 
-                    g.append("text").attr("class", "anno-text").attr("x", colCenterX).attr("y", yPos)
+                    const hasPanBarLexLink = document.getElementById("graphSelect").value === "Pan76";
+                    const annotation = g.append("text")
+                     .attr("class", hasPanBarLexLink ? "anno-text linked-anno" : "anno-text")
+                     .attr("x", colCenterX).attr("y", yPos)
                      .attr("transform", `rotate(-30, ${colCenterX}, ${yPos})`).text(gene + strandArrow)
                      .on("mouseover", (e) => {
-                         tooltip.style("display", "block").html(`<div style='color:var(--primary-color); margin-bottom:5px;'><strong>PGSB Gene (Click to view on PanBarLex)</strong></div>${gene}<br><span style="color:var(--dim-text);">Strand: ${colInfo.strand || '?'}</span>`);
+                        const label = hasPanBarLexLink ? "PGSB Gene (Click to view on PanBarLex)" : "Gene annotation";
+                        tooltip.style("display", "block").html(`<div style='color:var(--primary-color); margin-bottom:5px;'><strong>${label}</strong></div>${gene}<br><span style="color:var(--dim-text);">Strand: ${colInfo.strand || '?'}</span>`);
                      })
-                     .on("mousemove", moveTooltip).on("mouseout", hideTooltip)
-                     .on("click", () => {
+                     .on("mousemove", moveTooltip).on("mouseout", hideTooltip);
+                    if (hasPanBarLexLink) annotation.on("click", () => {
                          let linkGene = gene;
                          // Smart PROJ suffix parser for MOREX genes
                          if (linkGene.startsWith("HORVU.MOREX.")) {
@@ -724,7 +729,7 @@
         const viewStart = parseInt(viewCols[0].start);
         const viewEnd = parseInt(viewCols[viewCols.length - 1].end);
         
-        const visiblePanBaRT = globalGeneIndex.filter(g => g.source === "PanBaRT" && g.chrom === currentChrom && g.start >= viewStart && g.start <= viewEnd);
+        const visiblePanBaRT = globalGeneIndex.filter(g => g.graph === "Pan76" && g.source === "PanBaRT" && g.chrom === currentChrom && g.start >= viewStart && g.start <= viewEnd);
         visiblePanBaRT.forEach(gene => {
             const targetIdx = findColumnForAnnotation(gene);
             if (targetIdx === -1) return;
