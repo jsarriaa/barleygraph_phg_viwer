@@ -149,7 +149,7 @@
 
 <div id="viewer"></div>
 <div id="tooltip"></div>
-<div id="version-tag">Build: 2026-09-15 | v2.10 (Link Fixes)</div>
+<div id="version-tag">Build: 2026-10-13 | v2.2 (Added pangenome choice, including Wheat30)</div>
 
 <script>
     function toggleTheme() {
@@ -359,10 +359,10 @@
                 const sampSelect = d3.select("#samplePicker");
                 sampSelect.selectAll("option").remove();
                 sampSelect.selectAll("option").data(globalData.samples).enter().append("option").attr("value", d => d).text(d => d);
-                setChromosomeControlsEnabled(true);
 
                 computeChromosomeLayout(loadStartTime, requestId).then(() => {
                     if (requestId !== loadRequestId) return;
+                    setChromosomeControlsEnabled(true);
                     if (pendingJump) {
                         executeJump(pendingJump.start, pendingJump.end, pendingJump.gene);
                         pendingJump = null;
@@ -377,6 +377,7 @@
                 if (requestId !== loadRequestId) return;
                 globalData = null;
                 setChromosomeControlsEnabled(false);
+                document.getElementById('chromSelect').value = "";
                 showError(`Could not load chromosome: ${error.message}`);
             });
     });
