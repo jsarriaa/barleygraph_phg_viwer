@@ -215,26 +215,35 @@
 
     function updateURLParams(params) {
         const url = new URL(window.location);
+        url.searchParams.delete('region');
         url.searchParams.delete('graph');
         url.searchParams.delete('gene');
         url.searchParams.delete('chrom');
         url.searchParams.delete('start');
         url.searchParams.delete('end');
         for (const [key, value] of Object.entries(params)) {
-            if (value) url.searchParams.set(key, value);
+            if (key !== 'graph' && key !== 'chrom' && key !== 'start' && key !== 'end' && value) {
+                url.searchParams.set(key, value);
+            }
+        }
+        if (params.graph && params.chrom && params.start) {
+            const coordinates = params.end ? `${params.start}-${params.end}` : params.start;
+            url.searchParams.set('region', `${params.graph}/${params.chrom}/${coordinates}`);
         }
         window.history.pushState({}, '', url);
     }
 
     function checkUrlOnLoad() {
         const urlParams = new URLSearchParams(window.location.search);
+        const regionParam = urlParams.get('region');
         const graphParam = urlParams.get('graph');
         const geneParam = urlParams.get('gene');
-        const chromParam = urlParams.get('chrom');
-        const startParam = urlParams.get('start');
-        const endParam = urlParams.get('end');
+        const regionMatch = regionParam && regionParam.match(/^(Pan76|Wheat30)\/([^/]+)\/(\d+)(?:-(\d+))?$/);
+        const chromParam = regionMatch ? regionMatch[2] : urlParams.get('chrom');
+        const startParam = regionMatch ? regionMatch[3] : urlParams.get('start');
+        const endParam = regionMatch ? regionMatch[4] : urlParams.get('end');
 
-        const targetGraph = graphParam || ((geneParam || chromParam) ? "Pan76" : "");
+        const targetGraph = (regionMatch && regionMatch[1]) || graphParam || ((geneParam || chromParam) ? "Pan76" : "");
         if (!targetGraph || !graphChromosomes[targetGraph]) return;
 
         const graphSelect = document.getElementById('graphSelect');
